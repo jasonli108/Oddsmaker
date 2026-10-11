@@ -26,7 +26,7 @@ backend/            FastAPI
   app/routers/        thin HTTP layer, no logic
   app/market/         prices, bets, resolution, teams, users   -> stream A
   app/scout/          Nimble, GitHub, Gemini, the 30-minute timer -> stream C
-  app/events/         the host flow: the event row and the host page's numbers
+  app/events/         the host flow: launching an event and the host page's numbers
   app/sample_data.py  what the mock endpoints return; delete when nothing imports it
   scripts/            init_db, seed, export_openapi
   tests/
@@ -45,7 +45,7 @@ Needs Python 3.11+, Node 20+, and Docker for the local database.
 
 ```bash
 make setup      # venv, pip install, npm install, creates backend/.env
-make db         # start local TimescaleDB, apply schema, seed 4 markets and 6 sample teams
+make db         # start local TimescaleDB, apply schema, seed a sample event with 4 markets and 6 teams
 make backend    # http://localhost:8000  (interactive docs at /docs)
 make frontend   # http://localhost:5173  (proxies /api to the backend)
 make test       # backend tests and frontend typecheck
@@ -63,8 +63,8 @@ API keys go in `backend/.env` (never committed). See `backend/.env.example` for 
 | --- | --- |
 | `http://localhost:5173/` | Landing page for hackathon hosts |
 | `/setup` | Host setup: paste the event link, confirm details, launch |
-| `/e/<event-slug>` | The attendee app: Markets, Scout reports, Leaderboard, Sign up. The slug only names the event in the link |
-| `/host` | Host page: live numbers and winner picking. Asks for `HOST_PASSWORD` |
+| `/e/<event-slug>` | One event's attendee app: Markets, Scout reports, Leaderboard, Sign up. The slug decides which event's markets, teams and players load |
+| `/host/<event-slug>` | That event's host page: live numbers and winner picking. Asks for `HOST_PASSWORD` |
 
 The share link and QR code on the last setup screen use the address the app is served from. Set `VITE_PUBLIC_URL` in `frontend/.env` if attendees reach it some other way (a tunnel, a deployed domain).
 
@@ -74,27 +74,30 @@ All routes are under `/api`. Shapes are defined in `backend/app/schemas.py`.
 
 | Endpoint | Used by | Does |
 | --- | --- | --- |
-| `GET /markets` | Category pills | Lists the four markets |
+| `GET /markets?event=<slug>` | Category pills | Lists that event's markets |
 | `GET /markets/:id` | Markets tab | Teams with price, multiple, Scout's odds, plus totals |
 | `GET /markets/:id/history` | Price chart | Per-minute prices from the continuous aggregate |
 | `GET /markets/:id/feed` | Latest trades | Last 20 bets and Scout moves, newest first |
 | `POST /bets` | Bet slip | Places the bet, returns the locked multiple and new balance |
 | `POST /markets/:id/resolve` | Host only | Sets the winner and pays out. Needs the `X-Host-Password` header |
-| `GET /teams` | Scout reports tab | Lists teams |
-| `POST /teams` | Sign-up form | Creates the team, starts Scout's first run |
+| `GET /teams?event=<slug>` | Scout reports tab | Lists that event's teams |
+| `POST /teams` | Sign-up form | Creates the team in the event named by `event_slug`, starts Scout's first run |
 | `GET /teams/:id/report` | Scout summary, Scout reports tab | Latest report plus the history of Scout's odds |
-| `POST /users`, `GET /users/:id` | Header | Display name in, user with a 1,000 Hackcoin balance out |
-| `GET /leaderboard` | Leaderboard tab | Users ranked by balance |
+| `POST /users`, `GET /users/:id` | Header | Display name and `event_slug` in, a player of that event with its starting Hackcoin out |
+| `GET /leaderboard?event=<slug>` | Leaderboard tab | That event's players ranked by balance |
 | `POST /events/extract` | Host setup | Reads the host's event page into a draft to check. Sample data, marked as such, until Scout can read event pages |
-| `GET /event`, `PUT /event` | Header, host setup | The one event this deployment runs. Saving needs `X-Host-Password` and never creates markets. The first save sets how much Hackcoin each attendee starts with; later saves cannot change it |
-| `GET /host/summary` | Host page | Attendees, teams, bets, Hackcoin traded, a row per market, top five forecasters. Needs `X-Host-Password` |
+| `POST /events` | Host setup | Launches a new event: saves it, opens a market for each prize category the host ticked, and sets how much Hackcoin its attendees start with. Every call makes a separate event. Needs `X-Host-Password` |
+| `GET /events/:slug` | Header | One event's details |
+| `GET /event` | Landing page | The first event this deployment ran (the seeded sample), for "See a live market" |
+| `GET /host/summary?event=<slug>` | Host page | That event's attendees, teams, bets, Hackcoin traded, a row per market, top five forecasters. Needs `X-Host-Password` |
 | `GET /health` | | Reports whether the database is connected |
 
 **Conventions**
 
 - Prices and odds are fractions from 0 to 1 (`0.27` is 27%). The frontend formats them.
 - A payout multiple is `1 / price` at the moment of the bet. It is stored, never recomputed.
-- Market ids are `overall`, `nimble`, `gemini`, `tiger_data`, the same keys as Scout's `scores`.
+- Events are separate. Every market, team and player carries an `event_slug`; the list endpoints take `?event=<slug>` and return that event's rows only (every row if it is left out).
+- A market's `score_key` is the Scout score that prices it: `overall`, `nimble`, `gemini` or `tiger_data`, the keys of Scout's `scores`. A market for any other prize uses `overall`. Market ids are unique across events (`<event-slug>--<category>`; the sample event's are the four keys themselves).
 - Polling every 5 seconds, no websockets.
 
 ## Three workstreams

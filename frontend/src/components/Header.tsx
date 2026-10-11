@@ -64,7 +64,9 @@ export default function Header() {
 
 function Countdown() {
   const { submissionsClose } = useEvent();
-  const left = submissionsClose.getTime() - useNow();
+  const now = useNow();
+  if (!submissionsClose) return null;
+  const left = submissionsClose.getTime() - now;
   if (left <= 0) return <div className="dim small">Submissions closed</div>;
   return (
     <div className="dim small">

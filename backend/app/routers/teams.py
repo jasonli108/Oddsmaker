@@ -8,8 +8,8 @@ router = APIRouter(prefix="/teams", tags=["teams"])
 
 
 @router.get("", response_model=list[Team])
-async def list_teams():
-    return await service.list_teams()
+async def list_teams(event: str | None = None):
+    return await service.list_teams(event)
 
 
 @router.post("", response_model=Team, status_code=201)

@@ -71,8 +71,11 @@ const post = <T>(path: string, body: unknown, headers?: HeadersInit) =>
 /** Host-only routes check this header against HOST_PASSWORD on the server. */
 const asHost = (hostPassword: string) => ({ 'X-Host-Password': hostPassword });
 
+/** `?event=<slug>`: the lists below are always one event's. */
+const inEvent = (eventSlug: string) => `?event=${encodeURIComponent(eventSlug)}`;
+
 export const api = {
-  listMarkets: () => request<MarketSummary[]>('/markets'),
+  listMarkets: (eventSlug: string) => request<MarketSummary[]>(`/markets${inEvent(eventSlug)}`),
   getMarket: (id: string) => request<MarketDetail>(`/markets/${id}`),
   getHistory: (id: string) => request<MarketHistory>(`/markets/${id}/history`),
   getFeed: (id: string) => request<FeedItem[]>(`/markets/${id}/feed`),
@@ -80,19 +83,23 @@ export const api = {
   resolveMarket: (id: string, winnerTeamId: string, hostPassword: string) =>
     post<ResolveResult>(`/markets/${id}/resolve`, { winner_team_id: winnerTeamId }, asHost(hostPassword)),
 
-  listTeams: () => request<Team[]>('/teams'),
+  listTeams: (eventSlug: string) => request<Team[]>(`/teams${inEvent(eventSlug)}`),
   createTeam: (team: TeamCreate) => post<Team>('/teams', team),
   getTeamReport: (id: string) => request<TeamReport>(`/teams/${id}/report`),
 
-  createUser: (displayName: string) => post<User>('/users', { display_name: displayName }),
+  createUser: (displayName: string, eventSlug: string) =>
+    post<User>('/users', { display_name: displayName, event_slug: eventSlug }),
   getUser: (id: string) => request<User>(`/users/${id}`),
   getUserSummary: (id: string) => request<UserSummary>(`/users/${id}/summary`),
   getUserBets: (id: string) => request<UserBet[]>(`/users/${id}/bets`),
-  getLeaderboard: () => request<LeaderboardEntry[]>('/leaderboard'),
+  getLeaderboard: (eventSlug: string) => request<LeaderboardEntry[]>(`/leaderboard${inEvent(eventSlug)}`),
 
-  getEvent: () => request<EventInfo>('/event'),
-  saveEvent: (event: EventCreate, hostPassword: string) =>
-    request<EventInfo>('/event', { method: 'PUT', body: JSON.stringify(event), headers: asHost(hostPassword) }),
+  getEvent: (slug: string) => request<EventInfo>(`/events/${encodeURIComponent(slug)}`),
+  /** The first event this deployment ran: what "See a live market" on the landing page opens. */
+  getFirstEvent: () => request<EventInfo>('/event'),
+  /** Launches a new event and opens its markets. Every call makes a separate event. */
+  createEvent: (event: EventCreate, hostPassword: string) => post<EventInfo>('/events', event, asHost(hostPassword)),
   extractEvent: (url: string) => post<EventDraft>('/events/extract', { url }),
-  getHostSummary: (hostPassword: string) => request<HostSummary>('/host/summary', { headers: asHost(hostPassword) }),
+  getHostSummary: (eventSlug: string, hostPassword: string) =>
+    request<HostSummary>(`/host/summary${inEvent(eventSlug)}`, { headers: asHost(hostPassword) }),
 };

@@ -33,7 +33,8 @@ Unfinished work is marked `TODO(market)`, `TODO(frontend)` or `TODO(scout)`.
 - `backend/app/schemas.py` is the single source of truth for request and response shapes. After changing it, run `make types` and commit `frontend/src/api/schema.d.ts` in the same commit. Never edit `schema.d.ts` by hand.
 - Don't change the shape of an existing endpoint without telling the other two people; add fields rather than renaming or removing them.
 - Prices and odds are fractions from 0 to 1 everywhere in the API and the database. Only `frontend/src/format.ts` turns them into percentages.
-- Market ids are `overall`, `nimble`, `gemini`, `tiger_data`, the same keys as Scout's `scores`.
+- Events are separate: every market, team and player has an `event_slug`. A list endpoint takes `?event=<slug>` and returns that event's rows; anything new that lists or counts markets, teams or players must filter by event the same way.
+- A market's `score_key` (`overall`, `nimble`, `gemini`, `tiger_data`, the keys of Scout's `scores`) says which score prices it. Market ids are unique across events (`<event-slug>--<category>`), so never assume an id is one of those four keys.
 - All routes are under `/api`.
 
 ## Backend rules
@@ -62,6 +63,7 @@ Unfinished work is marked `TODO(market)`, `TODO(frontend)` or `TODO(scout)`.
 - Colours, fonts and radii come from the CSS variables in `src/index.css` (the spec's design tokens). Don't hard-code hex values in components.
 - Every number is set in IBM Plex Mono (`className="mono"`). Tap targets are at least 44px.
 - Fetch through `src/api/client.ts` and `usePolling` (5-second polling, no websockets). Import types from `src/api/types.ts`.
+- The event comes from the address (`/e/:slug`, `/host/:slug`): get it with `useEvent` / `useEventSlug` and pass the slug to every list call. A player is remembered per event.
 - The "Play money only" badge in the header must stay visible on every screen.
 - The design reference is `brainstorming/Hackathon market screens – Markets tab.html`. It is a bundled export; its team names, prices and report text are sample data.
 

@@ -3,6 +3,11 @@
 Functions return None when the thing asked for does not exist; the router turns that into a 404.
 Raise MarketError for a request that is understood but not allowed; the router turns that into a 400.
 
+Events: every market, team and player belongs to one event (its event_slug). The functions that
+list things take an event_slug and return that event's rows only; with none they return every
+row, which is what the Scout timer wants. A market or team id is unique across events, so
+anything addressed by id needs no event.
+
 Locking: anything that changes a market's weights first locks that market's positions rows
 (_lock_positions), so two changes at once can't read the same price. Take that lock before
 locking a users row, always in that order.
@@ -59,6 +64,18 @@ async def _fetchall(conn: AsyncConnection, sql: str, params: tuple = ()) -> list
     return await (await conn.execute(sql, params)).fetchall()
 
 
+def _slug(text: str, fallback: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-") or fallback
+
+
+# For the list functions: every row when no event is asked for. Takes the event slug twice.
+_IN_EVENT = "(%s::text IS NULL OR event_slug = %s)"
+
+
+async def _event_exists(conn: AsyncConnection, event_slug: str) -> bool:
+    return await _fetchone(conn, "SELECT 1 FROM events WHERE slug = %s", (event_slug,)) is not None
+
+
 async def _lock_positions(conn: AsyncConnection, market_id: str) -> dict[str, dict[str, float]]:
     """Lock a market's positions rows until the transaction ends. Returns team_id -> {seed, staked}."""
     rows = await _fetchall(
@@ -97,7 +114,7 @@ async def _write_ticks(
 # ---- Teams -----------------------------------------------------------------
 
 
-_TEAM_COLUMNS = "id, name, idea, repo_url, demo_url, color, creator_user_id"
+_TEAM_COLUMNS = "id, name, idea, repo_url, demo_url, color, creator_user_id, event_slug"
 
 
 def _team(row: dict) -> Team:
@@ -109,12 +126,17 @@ def _team(row: dict) -> Team:
         demo_url=row.get("demo_url"),
         color=row["color"],
         creator_user_id=str(row["creator_user_id"]) if row.get("creator_user_id") else None,
+        event_slug=row.get("event_slug"),
     )
 
 
-async def list_teams() -> list[Team]:
+async def list_teams(event_slug: str | None = None) -> list[Team]:
     async with db.get_pool().connection() as conn:
-        rows = await _fetchall(conn, f"SELECT {_TEAM_COLUMNS} FROM teams ORDER BY created_at, name")
+        rows = await _fetchall(
+            conn,
+            f"SELECT {_TEAM_COLUMNS} FROM teams WHERE {_IN_EVENT} ORDER BY created_at, name",
+            (event_slug, event_slug),
+        )
     return [_team(r) for r in rows]
 
 
@@ -129,28 +151,42 @@ TEAM_COLORS = ["#7DB8FF", "#FFB454", "#D2B8FF", "#4FC9B0", "#F29BB7", "#C9D1D8"]
 
 
 async def create_team(body: TeamCreate) -> Team:
-    """Save a team and enter it in every open market.
+    """Save a team and enter it in every open market of its event.
 
     It enters with no seed, so it sits at the price floor until Scout's first report sets its odds.
+    The name must be new within the event; the id is unique across all events.
     """
-    base = re.sub(r"[^a-z0-9]+", "-", body.name.lower()).strip("-") or "team"
+    base = _slug(body.name, "team")
+    event = body.event_slug
     creator_uid = _as_uuid(body.creator_user_id) if body.creator_user_id else None
     async with db.get_pool().connection() as conn:
         async with conn.transaction():
-            if await _fetchone(conn, "SELECT 1 FROM teams WHERE lower(name) = lower(%s)", (body.name,)):
+            if event is not None and not await _event_exists(conn, event):
+                raise MarketError("This event doesn't exist. Check the link you were given.")
+            if await _fetchone(
+                conn,
+                "SELECT 1 FROM teams WHERE lower(name) = lower(%s) AND event_slug IS NOT DISTINCT FROM %s",
+                (body.name, event),
+            ):
                 raise MarketError("A team with this name has already signed up.")
             taken = {r["id"] for r in await _fetchall(conn, "SELECT id FROM teams WHERE id LIKE %s", (base + "%",))}
             slug, n = base, 2
             while slug in taken:
                 slug, n = f"{base}-{n}", n + 1
-            count = (await _fetchone(conn, "SELECT count(*) AS n FROM teams"))["n"]
+            count = (
+                await _fetchone(conn, "SELECT count(*) AS n FROM teams WHERE event_slug IS NOT DISTINCT FROM %s", (event,))
+            )["n"]
             row = await _fetchone(
                 conn,
-                f"INSERT INTO teams (id, name, idea, repo_url, demo_url, color, creator_user_id) VALUES (%s, %s, %s, %s, %s, %s, %s) "
-                f"RETURNING {_TEAM_COLUMNS}",
-                (slug, body.name, body.idea, body.repo_url, body.demo_url, TEAM_COLORS[count % len(TEAM_COLORS)], creator_uid),
+                "INSERT INTO teams (id, name, idea, repo_url, demo_url, color, creator_user_id, event_slug) "
+                f"VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING {_TEAM_COLUMNS}",
+                (slug, body.name, body.idea, body.repo_url, body.demo_url, TEAM_COLORS[count % len(TEAM_COLORS)], creator_uid, event),
             )
-            open_markets = await _fetchall(conn, "SELECT id FROM markets WHERE status = 'open' ORDER BY id")
+            open_markets = await _fetchall(
+                conn,
+                "SELECT id FROM markets WHERE status = 'open' AND event_slug IS NOT DISTINCT FROM %s ORDER BY id",
+                (event,),
+            )
             for market in open_markets:
                 positions = await _lock_positions(conn, market["id"])
                 await conn.execute(
@@ -164,19 +200,41 @@ async def create_team(body: TeamCreate) -> Team:
 # ---- Markets ---------------------------------------------------------------
 
 
-_MARKET_COLUMNS = "id, title, category, status, winner_team_id"
-# The order the category pills appear in. Any other market sorts after these, by id.
+# A market made before events were separate has no score_key: its id is the key.
+_MARKET_COLUMNS = "id, title, category, status, winner_team_id, event_slug, coalesce(score_key, id) AS score_key"
+# The order the first event's category pills appear in. Any other market sorts after these, in the
+# order the host listed its categories.
 _MARKET_ORDER = ["overall", "nimble", "gemini", "tiger_data"]
 
 
-async def list_markets() -> list[MarketSummary]:
+async def list_markets(event_slug: str | None = None) -> list[MarketSummary]:
     async with db.get_pool().connection() as conn:
         rows = await _fetchall(
             conn,
-            f"SELECT {_MARKET_COLUMNS} FROM markets ORDER BY coalesce(array_position(%s::text[], id), 999), id",
-            (_MARKET_ORDER,),
+            f"SELECT {_MARKET_COLUMNS} FROM markets WHERE {_IN_EVENT} "
+            "ORDER BY coalesce(array_position(%s::text[], id), 999), sort_order, id",
+            (event_slug, event_slug, _MARKET_ORDER),
         )
     return [MarketSummary(**r) for r in rows]
+
+
+async def open_market(conn: AsyncConnection, event_slug: str, category: str, score_key: str, sort_order: int) -> str:
+    """Add an open market to an event, inside the caller's transaction. Returns the new market's id.
+
+    Called when a host launches an event (events.service.create_event), once per prize category.
+    The market starts with no teams: each team enters it at sign-up (create_team). `score_key` is
+    the Scout score that prices it.
+    """
+    base = f"{event_slug}--{_slug(category, 'prize')}"
+    taken = {r["id"] for r in await _fetchall(conn, "SELECT id FROM markets WHERE id LIKE %s", (base + "%",))}
+    market_id, n = base, 2
+    while market_id in taken:
+        market_id, n = f"{base}-{n}", n + 1
+    await conn.execute(
+        "INSERT INTO markets (id, title, category, event_slug, score_key, sort_order) VALUES (%s, %s, %s, %s, %s, %s)",
+        (market_id, f"Who wins {category}?", category, event_slug, score_key, sort_order),
+    )
+    return market_id
 
 
 async def get_market(market_id: str) -> MarketDetail | None:
@@ -306,15 +364,18 @@ async def place_bet(body: BetCreate) -> BetReceipt | None:
             if body.team_id not in weights:
                 return None
             # Read the status only once we hold the lock: a resolve may have just finished.
-            market = await _fetchone(conn, "SELECT status FROM markets WHERE id = %s", (body.market_id,))
+            market = await _fetchone(conn, "SELECT status, event_slug FROM markets WHERE id = %s", (body.market_id,))
             if market["status"] != "open":
                 raise MarketError("Betting is closed: this market has been resolved.")
 
             user = None
             if user_id is not None:
-                user = await _fetchone(conn, "SELECT balance FROM users WHERE id = %s FOR UPDATE", (user_id,))
+                user = await _fetchone(conn, "SELECT balance, event_slug FROM users WHERE id = %s FOR UPDATE", (user_id,))
             if user is None:
                 raise MarketError("We don't know this player. Pick a display name and try again.")
+            # A balance belongs to one event: it can't be staked in another event's market.
+            if user["event_slug"] != market["event_slug"]:
+                raise MarketError("You joined a different event. Pick a display name on this event's page to bet here.")
             if body.stake > user["balance"]:
                 raise MarketError("Stake is more than your balance.")
 
@@ -417,19 +478,32 @@ async def apply_scout_odds(market_id: str, odds: dict[str, float]) -> None:
 # ---- Users -----------------------------------------------------------------
 
 
+_USER_COLUMNS = "id, display_name, balance, event_slug"
+
+
 def _user(row: dict) -> User:
-    return User(id=str(row["id"]), display_name=row["display_name"], balance=float(row["balance"]))
+    return User(
+        id=str(row["id"]), display_name=row["display_name"], balance=float(row["balance"]), event_slug=row["event_slug"]
+    )
 
 
-async def create_user(display_name: str) -> User:
-    """A new player, with the starting balance the host chose at launch (or the default before any launch)."""
+async def create_user(display_name: str, event_slug: str | None = None) -> User:
+    """A new player in an event, with the starting balance that event's host chose at launch.
+
+    Someone who plays in two events is two players, each with their own balance. Without an
+    event the player gets the default starting balance.
+    """
     async with db.get_pool().connection() as conn:
+        balance = get_settings().starting_balance
+        if event_slug is not None:
+            event = await _fetchone(conn, "SELECT starting_balance FROM events WHERE slug = %s", (event_slug,))
+            if event is None:
+                raise MarketError("This event doesn't exist. Check the link you were given.")
+            balance = event["starting_balance"]
         row = await _fetchone(
             conn,
-            "INSERT INTO users (display_name, balance) "
-            "VALUES (%s, coalesce((SELECT starting_balance FROM events WHERE id = 1), %s)) "
-            "RETURNING id, display_name, balance",
-            (display_name, get_settings().starting_balance),
+            f"INSERT INTO users (display_name, balance, event_slug) VALUES (%s, %s, %s) RETURNING {_USER_COLUMNS}",
+            (display_name, balance, event_slug),
         )
     return _user(row)
 
@@ -439,18 +513,18 @@ async def get_user(user_id: str) -> User | None:
     if uid is None:
         return None
     async with db.get_pool().connection() as conn:
-        row = await _fetchone(conn, "SELECT id, display_name, balance FROM users WHERE id = %s", (uid,))
+        row = await _fetchone(conn, f"SELECT {_USER_COLUMNS} FROM users WHERE id = %s", (uid,))
     return _user(row) if row else None
 
 
-async def get_leaderboard(limit: int = 100) -> list[LeaderboardEntry]:
-    """Players by balance, richest first. Equal balances share a rank."""
+async def get_leaderboard(limit: int = 100, event_slug: str | None = None) -> list[LeaderboardEntry]:
+    """An event's players by balance, richest first. Equal balances share a rank."""
     async with db.get_pool().connection() as conn:
         rows = await _fetchall(
             conn,
             "SELECT id, display_name, balance, rank() OVER (ORDER BY balance DESC) AS rank "
-            "FROM users ORDER BY balance DESC, created_at LIMIT %s",
-            (limit,),
+            f"FROM users WHERE {_IN_EVENT} ORDER BY balance DESC, created_at LIMIT %s",
+            (event_slug, event_slug, limit),
         )
     return [
         LeaderboardEntry(rank=r["rank"], user_id=str(r["id"]), display_name=r["display_name"], balance=float(r["balance"]))
@@ -459,19 +533,21 @@ async def get_leaderboard(limit: int = 100) -> list[LeaderboardEntry]:
 
 
 async def get_user_summary(user_id: str) -> UserSummary | None:
-    """Detailed summary of a user's activity: rank, balance, bets placed, and teams signed up."""
+    """Detailed summary of a user's activity: rank in their event, balance, bets placed, and teams signed up."""
     uid = _as_uuid(user_id)
     if uid is None:
         return None
     async with db.get_pool().connection() as conn:
-        user_row = await _fetchone(conn, "SELECT id, display_name, balance FROM users WHERE id = %s", (uid,))
+        user_row = await _fetchone(conn, f"SELECT {_USER_COLUMNS} FROM users WHERE id = %s", (uid,))
         if user_row is None:
             return None
 
+        # Ranked among the players of the same event.
         rank_row = await _fetchone(
             conn,
-            "SELECT rank FROM (SELECT id, rank() OVER (ORDER BY balance DESC) AS rank FROM users) x WHERE id = %s",
-            (uid,),
+            "SELECT rank FROM (SELECT id, rank() OVER (ORDER BY balance DESC) AS rank FROM users "
+            "WHERE event_slug IS NOT DISTINCT FROM %s) x WHERE id = %s",
+            (user_row["event_slug"], uid),
         )
         rank = rank_row["rank"] if rank_row else None
 

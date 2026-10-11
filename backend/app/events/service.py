@@ -1,7 +1,9 @@
-"""The host flow: the single event row and the host page's numbers.
+"""The host flow: launching an event and the host page's numbers.
 
-This service may read any table. It must never write positions, price_ticks, bets or balances;
-winner picking goes through the existing POST /api/markets/{id}/resolve.
+Launching an event saves its row and opens its markets, one per prize category the host ticked.
+The markets are opened by market.service.open_market. This service may read any table but must
+never write positions, price_ticks, bets or balances; winner picking goes through the existing
+POST /api/markets/{id}/resolve.
 """
 
 import logging
@@ -13,7 +15,7 @@ from app import db
 from app.config import get_settings
 from app.events import sample
 from app.market import service as market
-from app.schemas import Event, EventCreate, EventDraft, HostMarketRow, HostSummary, MarketId
+from app.schemas import Event, EventCategory, EventCreate, EventDraft, HostMarketRow, HostSummary, MarketId
 from app.scout import pipeline
 
 log = logging.getLogger(__name__)
@@ -25,11 +27,11 @@ _DRAFT_FIELDS = ["name", "hosted_by", "location", "starts_at", "submissions_clos
 
 
 class EventError(Exception):
-    """A change to the event that is understood but not allowed. The router turns it into a 400."""
+    """An event that is understood but can't be launched as asked. The router turns it into a 400."""
 
 
 def market_id_for(category_name: str) -> MarketId | None:
-    """Which of the four markets a prize category maps to, if any. Scout can use this in extract_event."""
+    """Which of Scout's four scores fits a prize category, if any. Scout uses this in extract_event."""
     name = category_name.lower()
     if "nimble" in name:
         return "nimble"
@@ -65,65 +67,88 @@ def _event(row: dict) -> Event:
     return Event(**row)
 
 
-async def get_event() -> Event | None:
+async def get_event(slug: str | None = None) -> Event | None:
+    """The event with this slug. Without one, the first event this deployment ran."""
     async with db.get_pool().connection() as conn:
-        row = await (await conn.execute(f"SELECT {_EVENT_COLUMNS} FROM events WHERE id = 1")).fetchone()
+        if slug is None:
+            cur = await conn.execute(f"SELECT {_EVENT_COLUMNS} FROM events ORDER BY id LIMIT 1")
+        else:
+            cur = await conn.execute(f"SELECT {_EVENT_COLUMNS} FROM events WHERE slug = %s", (slug,))
+        row = await cur.fetchone()
     return _event(row) if row else None
 
 
-async def save_event(body: EventCreate) -> Event:
-    """Create or replace the single event row. Never creates or deletes markets.
+def _wants_market(category: EventCategory) -> bool:
+    return category.create_market if category.create_market is not None else category.market_id is not None
 
-    The starting balance is set by the first launch and cannot change afterwards: attendees who
-    have already joined were given that amount, so changing it would be unfair to them.
+
+async def create_event(body: EventCreate) -> Event:
+    """Launch a new event: save it and open a market for every category the host ticked.
+
+    Each event is separate. Its slug, which names it in the attendee link, is made from the name
+    and never changes; a second event of the same name gets a numbered slug. A category Scout has
+    no score for (anything but overall, Nimble, Gemini and Tiger Data) is priced by the overall score.
     """
-    slug = re.sub(r"[^a-z0-9]+", "-", body.name.lower()).strip("-") or "event"
-    values = (
-        slug,
-        body.name,
-        body.hosted_by,
-        body.location,
-        body.starts_at,
-        body.submissions_close_at,
-        body.source_url,
-        Jsonb([c.model_dump() for c in body.categories]),
-        body.starting_balance,
-    )
+    categories = [
+        c.model_copy(update={"market_id": c.market_id or market_id_for(c.name), "create_market": _wants_market(c)})
+        for c in body.categories
+    ]
+    with_market = [c for c in categories if c.create_market]
+    if not with_market:
+        raise EventError("Add at least one prize category with a market, so attendees have something to bet on.")
+    base = re.sub(r"[^a-z0-9]+", "-", body.name.lower()).strip("-") or "event"
     async with db.get_pool().connection() as conn:
         async with conn.transaction():
-            current = await (
-                await conn.execute("SELECT starting_balance FROM events WHERE id = 1 FOR UPDATE")
-            ).fetchone()
-            if current and current["starting_balance"] != body.starting_balance:
-                raise EventError(
-                    f"The starting amount was set to {current['starting_balance']:,} Hackcoin at launch "
-                    "and can't be changed."
-                )
+            # One launch at a time, so two events of the same name can't pick the same slug.
+            await conn.execute("LOCK TABLE events IN SHARE ROW EXCLUSIVE MODE")
+            taken = {
+                r["slug"]
+                for r in await (await conn.execute("SELECT slug FROM events WHERE slug LIKE %s", (base + "%",))).fetchall()
+            }
+            slug, n = base, 2
+            while slug in taken:
+                slug, n = f"{base}-{n}", n + 1
             row = await (
                 await conn.execute(
-                    f"INSERT INTO events (id, {_EVENT_COLUMNS}) VALUES (1, %s, %s, %s, %s, %s, %s, %s, %s, %s) "
-                    "ON CONFLICT (id) DO UPDATE SET slug = EXCLUDED.slug, name = EXCLUDED.name, "
-                    "hosted_by = EXCLUDED.hosted_by, location = EXCLUDED.location, starts_at = EXCLUDED.starts_at, "
-                    "submissions_close_at = EXCLUDED.submissions_close_at, source_url = EXCLUDED.source_url, "
-                    f"categories = EXCLUDED.categories RETURNING {_EVENT_COLUMNS}",
-                    values,
+                    f"INSERT INTO events ({_EVENT_COLUMNS}) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) "
+                    f"RETURNING {_EVENT_COLUMNS}",
+                    (
+                        slug,
+                        body.name,
+                        body.hosted_by,
+                        body.location,
+                        body.starts_at,
+                        body.submissions_close_at,
+                        body.source_url,
+                        Jsonb([c.model_dump() for c in categories]),
+                        body.starting_balance,
+                    ),
                 )
             ).fetchone()
+            for order, category in enumerate(with_market):
+                await market.open_market(conn, slug, category.name, category.market_id or "overall", order)
     return _event(row)
 
 
-async def host_summary() -> HostSummary:
-    """The host page's numbers. Read-only."""
+async def host_summary(event_slug: str | None = None) -> HostSummary | None:
+    """One event's numbers for its host page. Read-only. None if there is no such event."""
     async with db.get_pool().connection() as conn:
+        if event_slug is not None:
+            if not await (await conn.execute("SELECT 1 FROM events WHERE slug = %s", (event_slug,))).fetchone():
+                return None
+        in_event = "(%(e)s::text IS NULL OR event_slug = %(e)s)"
         counts = await (
             await conn.execute(
-                "SELECT (SELECT count(*) FROM users) AS attendees, (SELECT count(*) FROM teams) AS teams, "
-                "(SELECT count(*) FROM bets) AS bets, (SELECT coalesce(sum(stake), 0) FROM bets) AS traded"
+                f"SELECT (SELECT count(*) FROM users WHERE {in_event}) AS attendees, "
+                f"(SELECT count(*) FROM teams WHERE {in_event}) AS teams, "
+                "count(b.id) AS bets, coalesce(sum(b.stake), 0) AS traded "
+                f"FROM (SELECT id FROM markets WHERE {in_event}) m LEFT JOIN bets b ON b.market_id = m.id",
+                {"e": event_slug},
             )
         ).fetchone()
 
     rows = []
-    for summary in await market.list_markets():
+    for summary in await market.list_markets(event_slug):
         detail = await market.get_market(summary.id)
         leader = detail.teams[0] if detail and detail.teams else None  # teams come sorted by price
         rows.append(
@@ -144,5 +169,5 @@ async def host_summary() -> HostSummary:
         bets=counts["bets"],
         hackcoin_traded=float(counts["traded"]),
         markets=rows,
-        top_forecasters=await market.get_leaderboard(limit=5),
+        top_forecasters=await market.get_leaderboard(limit=5, event_slug=event_slug),
     )

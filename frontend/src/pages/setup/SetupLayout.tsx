@@ -7,7 +7,7 @@ const STEPS = ['Event link', 'Confirm details', 'Launch'];
 export default function SetupLayout() {
   const { pathname } = useLocation();
   const path = useAttendeePath();
-  const current = pathname.endsWith('/live') ? 2 : pathname.endsWith('/review') ? 1 : 0;
+  const current = pathname.includes('/live/') ? 2 : pathname.endsWith('/review') ? 1 : 0;
 
   return (
     <div style={{ fontSize: 16, lineHeight: 1.5 }}>

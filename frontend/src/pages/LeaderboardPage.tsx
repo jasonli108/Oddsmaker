@@ -2,14 +2,16 @@ import { Link } from 'react-router-dom';
 import { api } from '../api/client';
 import { coin } from '../format';
 import { useAttendeePath } from '../hooks/useAttendeePath';
+import { useEventSlug } from '../hooks/useEvent';
 import { usePolling } from '../hooks/usePolling';
 import { useUser } from '../hooks/useUser';
 
 export default function LeaderboardPage() {
   const { user } = useUser();
   const path = useAttendeePath();
-  const board = usePolling(api.getLeaderboard, 'leaderboard');
-  const markets = usePolling(api.listMarkets, 'leaderboard-markets');
+  const eventSlug = useEventSlug();
+  const board = usePolling(() => api.getLeaderboard(eventSlug), `leaderboard-${eventSlug}`);
+  const markets = usePolling(() => api.listMarkets(eventSlug), `leaderboard-markets-${eventSlug}`);
 
   const total = markets.data?.length ?? 0;
   const resolved = markets.data?.filter((m) => m.status === 'resolved').length ?? 0;

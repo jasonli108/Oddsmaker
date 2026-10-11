@@ -8,7 +8,10 @@ team's last report and save it with stale = true. A team with no report yet is p
 NEUTRAL_SCORE, so it never sits at the price floor because Scout failed.
 
 Caching needs no extra table (docs/scout.md): a team's similar projects are searched once and
-kept in its report, and the "what wins here" brief lives in memory until the server restarts.
+kept in its report, and each event's "what wins here" brief lives in memory until the server restarts.
+
+Events are separate: a team is scored against the teams of its own event only, and each event
+has its own brief and its own markets.
 """
 
 import asyncio
@@ -28,7 +31,8 @@ log = logging.getLogger(__name__)
 
 # EventDraft fields the host has to fill in by hand when the page doesn't give them.
 DRAFT_FIELDS = ("name", "hosted_by", "location", "starts_at", "submissions_close_at", "categories")
-# The markets Scout scores: overall, nimble, gemini, tiger_data.
+# The prizes Scout scores: overall, nimble, gemini, tiger_data. Every market is priced by one of
+# these (its score_key); a market for any other prize uses the overall score.
 MARKET_IDS = list(ScoutScores.model_fields)
 # A team without a report yet is priced as if Scout had scored it this in every category.
 NEUTRAL_SCORE = 50
@@ -37,7 +41,8 @@ PARALLEL_TEAMS = 3
 SIMILAR_LIMIT = 6
 GALLERY_DOMAINS = ["devpost.com"]
 
-_brief: str | None = None
+# Event slug -> its brief. A brief that failed to build is not kept, so the next run tries again.
+_briefs: dict[str | None, str] = {}
 _brief_lock = asyncio.Lock()
 
 
@@ -90,26 +95,28 @@ def _parse_time(value: str) -> datetime | None:
 # ---- Once per event ----------------------------------------------------------
 
 
-async def prepare_event() -> str:
-    """Steps 1 and 2: the "what wins here" brief, built once and kept in memory.
+async def prepare_event(event_slug: str | None = None) -> str:
+    """Steps 1 and 2: an event's "what wins here" brief, built once per event and kept in memory.
 
     1. nimble.extract on the event page the host saved (or EVENT_URL), for the prize criteria.
     2. nimble.search for winning projects in hackathon galleries, then gemini.condense_winners_brief.
     Returns "" if that fails, so reports are still written; the next run tries again.
     """
-    global _brief
     async with _brief_lock:
-        if _brief is None:
-            _brief = await _build_brief()
-        return _brief or ""
+        if event_slug not in _briefs:
+            brief = await _build_brief(event_slug)
+            if brief is None:
+                return ""
+            _briefs[event_slug] = brief
+        return _briefs[event_slug]
 
 
-async def _build_brief() -> str | None:
+async def _build_brief(event_slug: str | None) -> str | None:
     # Imported here, not at the top, because app.events.service imports this module.
     from app.events.service import get_event
 
     try:
-        event = await get_event()
+        event = await get_event(event_slug) if event_slug else None
     except Exception:
         log.warning("Could not read the saved event; building the brief without it", exc_info=True)
         event = None
@@ -253,13 +260,16 @@ async def _save_report(report: ScoutReport, *, stale: bool) -> None:
 async def reprice_markets() -> None:
     """Steps 7 and 8, after the reports are saved.
 
-    7. For each market, odds = pricing.odds_from_scores over every team's latest score for that
-       category, with NEUTRAL_SCORE for a team that has no report yet.
+    7. For each market, odds = pricing.odds_from_scores over the latest score, in that market's
+       category, of every team in the market's event, with NEUTRAL_SCORE for a team that has no
+       report yet.
     8. Hand the odds to market.service.apply_scout_odds, which re-splits the seed and writes the
        price ticks. Scout never writes to positions or price_ticks itself. The feed picks up any
        team whose price moved a point or more.
     """
-    teams = await market_service.list_teams()
+    teams_in: dict[str | None, list[Team]] = {}
+    for team in await market_service.list_teams():
+        teams_in.setdefault(team.event_slug, []).append(team)
     async with db.get_pool().connection() as conn:
         rows = await (
             await conn.execute(
@@ -268,9 +278,10 @@ async def reprice_markets() -> None:
             )
         ).fetchall()
     latest = {r["team_id"]: r["scores"] for r in rows}
-    for market_id in MARKET_IDS:
-        scores = {t.id: latest.get(t.id, {}).get(market_id, NEUTRAL_SCORE) for t in teams}
-        await market_service.apply_scout_odds(market_id, pricing.odds_from_scores(scores))
+    for market in await market_service.list_markets():
+        key = market.score_key if market.score_key in MARKET_IDS else "overall"
+        scores = {t.id: latest.get(t.id, {}).get(key, NEUTRAL_SCORE) for t in teams_in.get(market.event_slug, [])}
+        await market_service.apply_scout_odds(market.id, pricing.odds_from_scores(scores))
 
 
 # ---- Entry points ------------------------------------------------------------
@@ -281,20 +292,20 @@ async def run_for_team(team: Team) -> None:
     if not get_settings().scout_enabled:
         log.info("SCOUT_ENABLED is false, so no report for %s", team.id)
         return
-    await refresh_team(team, await prepare_event())
+    await refresh_team(team, await prepare_event(team.event_slug))
     await reprice_markets()
 
 
 async def refresh_all() -> None:
     """Called by the scheduler: steps 4 to 8 for every team, a few at a time."""
-    brief = await prepare_event()
     limit = asyncio.Semaphore(PARALLEL_TEAMS)
+    teams = await market_service.list_teams()
+    briefs = {slug: await prepare_event(slug) for slug in {t.event_slug for t in teams}}
 
     async def refresh(team: Team) -> None:
         async with limit:
-            await refresh_team(team, brief)
+            await refresh_team(team, briefs[team.event_slug])
 
-    teams = await market_service.list_teams()
     results = await asyncio.gather(*(refresh(t) for t in teams), return_exceptions=True)
     for team, result in zip(teams, results):
         if isinstance(result, Exception):
@@ -320,13 +331,20 @@ async def get_team_report(team_id: str) -> TeamReport | None:
         if latest is None:
             # The frontend shows "writing its first report".
             return TeamReport(team=team, report=None, created_at=None, stale=False, odds_history=[])
+        # Only the team's own event: its odds are its share among the teams it is up against.
         rows = await (
             await conn.execute(
-                "SELECT team_id, created_at, stale, body->'scores' AS scores, body->>'change_note' AS note "
-                "FROM reports ORDER BY created_at, id"
+                "SELECT r.team_id, r.created_at, r.stale, r.body->'scores' AS scores, r.body->>'change_note' AS note "
+                "FROM reports r JOIN teams t ON t.id = r.team_id "
+                "WHERE t.event_slug IS NOT DISTINCT FROM %s ORDER BY r.created_at, r.id",
+                (team.event_slug,),
             )
         ).fetchall()
-        joined = await (await conn.execute("SELECT id, created_at FROM teams")).fetchall()
+        joined = await (
+            await conn.execute(
+                "SELECT id, created_at FROM teams WHERE event_slug IS NOT DISTINCT FROM %s", (team.event_slug,)
+            )
+        ).fetchall()
     return TeamReport(
         team=team,
         report=ScoutReport(**latest["body"]),

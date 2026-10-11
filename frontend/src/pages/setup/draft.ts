@@ -19,7 +19,7 @@ export const saveDraft = (draft: EventDraft) => sessionStorage.setItem(KEY, JSON
 
 export const clearDraft = () => sessionStorage.removeItem(KEY);
 
-/** For a host with no event page: nothing filled in, and the four markets that always exist. */
+/** For a host with no event page: nothing filled in, and one empty prize category to start from. */
 export function blankDraft(): EventDraft {
   return {
     name: '',
@@ -28,12 +28,7 @@ export function blankDraft(): EventDraft {
     starts_at: null,
     submissions_close_at: null,
     source_url: null,
-    categories: [
-      { name: 'Best overall', prize: null, market_id: 'overall' },
-      { name: 'Best use of Nimble', prize: null, market_id: 'nimble' },
-      { name: 'Best use of Gemini', prize: null, market_id: 'gemini' },
-      { name: 'Best use of Tiger Data', prize: null, market_id: 'tiger_data' },
-    ],
+    categories: [{ name: '', prize: null, market_id: null, create_market: true }],
     missing: [],
     is_sample: false,
   };
