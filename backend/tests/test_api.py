@@ -5,8 +5,11 @@ the build spec's worked example, so Orbit opens at 27%.
 """
 
 import pytest
+from psycopg.types.json import Jsonb
 
+from app import sample_data
 from app.market import service
+from app.scout import pipeline
 
 
 def join(client, name="Maya") -> dict:
@@ -381,10 +384,29 @@ def test_leaderboard_ties_share_a_rank(client):
     ]
 
 
-# ---- Scout reports: still sample data until the Scout stream lands -----------
+# ---- Scout reports -----------------------------------------------------------
 
 
-def test_sample_team_reports_have_all_four_scores(client):
+def save_report(db, team_id, overall, stale=False):
+    body = sample_data.team_report(team_id).report.model_dump(mode="json")
+    body["scores"]["overall"] = overall
+    db.execute("INSERT INTO reports (team_id, body, stale) VALUES (%s, %s, %s)", (team_id, Jsonb(body), stale))
+
+
+def test_team_report_is_the_latest_saved_report(client, db):
+    assert client.get("/api/teams/orbit/report").json()["report"] is None
+    save_report(db, "orbit", 60)
+    save_report(db, "orbit", 60, stale=True)  # a refresh that failed and reused the last report
     report = client.get("/api/teams/orbit/report").json()
     assert set(report["report"]["scores"]) == {"overall", "nimble", "gemini", "tiger_data"}
+    assert report["stale"] is True
+    # One point per market for the fresh report; the stale copy adds none.
+    assert [p["market_id"] for p in report["odds_history"]] == ["overall", "nimble", "gemini", "tiger_data"]
     assert client.get("/api/teams/nobody/report").status_code == 404
+
+
+def test_scout_sets_the_odds_from_the_latest_scores(client, db, call):
+    save_report(db, "orbit", 100)
+    call(pipeline.reprice_markets)
+    # Orbit scores 100; the five teams with no report yet count as a neutral 50 each.
+    assert team(client.get("/api/markets/overall").json(), "orbit")["scout_odds"] == pytest.approx(100 / 350)

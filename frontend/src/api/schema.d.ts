@@ -723,6 +723,11 @@ export interface components {
             title: string;
             /** Url */
             url: string;
+            /**
+             * Description
+             * @default
+             */
+            description: string;
         };
         /** Team */
         Team: {
