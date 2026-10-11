@@ -6,11 +6,13 @@ import Stat from '../components/Stat';
 import { coin, pct, plural } from '../format';
 import { hostPassword } from '../host';
 import { useAttendeePath } from '../hooks/useAttendeePath';
+import { useEvent, useEventSlug } from '../hooks/useEvent';
 import { usePolling } from '../hooks/usePolling';
 
-/** The organiser's page: how the event is going, and where each market's winner is picked. */
+/** The organiser's page for one event: how it is going, and where each market's winner is picked. */
 export default function HostPage() {
   const [password, setPassword] = useState(() => hostPassword.get());
+  const { notFound } = useEvent();
 
   function unlock(value: string) {
     hostPassword.set(value);
@@ -24,12 +26,25 @@ export default function HostPage() {
 
   return (
     <div className="container stack" style={{ paddingTop: 28, paddingBottom: 48, maxWidth: 920, gap: 22 }}>
-      {password ? <Dashboard password={password} onLock={lock} /> : <PasswordGate onUnlock={unlock} />}
+      {notFound ? (
+        <div className="stack" style={{ maxWidth: 420, alignItems: 'flex-start' }}>
+          <h1>We can't find that event</h1>
+          <div className="dim">Check the host page link from the last setup screen.</div>
+          <Link className="btn" to="/" style={{ display: 'grid', placeItems: 'center' }}>
+            Go to Oddsmaker
+          </Link>
+        </div>
+      ) : password ? (
+        <Dashboard password={password} onLock={lock} />
+      ) : (
+        <PasswordGate onUnlock={unlock} />
+      )}
     </div>
   );
 }
 
 function PasswordGate({ onUnlock }: { onUnlock: (password: string) => void }) {
+  const eventSlug = useEventSlug();
   const [value, setValue] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -41,7 +56,7 @@ function PasswordGate({ onUnlock }: { onUnlock: (password: string) => void }) {
     setError(null);
     try {
       // The summary is the cheapest host-only call, so it doubles as the password check.
-      await api.getHostSummary(value);
+      await api.getHostSummary(eventSlug, value);
       onUnlock(value);
     } catch (err) {
       const wrong = err instanceof ApiError && err.status === 401;
@@ -75,7 +90,9 @@ function PasswordGate({ onUnlock }: { onUnlock: (password: string) => void }) {
 }
 
 function Dashboard({ password, onLock }: { password: string; onLock: () => void }) {
-  const summary = usePolling(() => api.getHostSummary(password), password);
+  const eventSlug = useEventSlug();
+  const { name: eventName } = useEvent();
+  const summary = usePolling(() => api.getHostSummary(eventSlug, password), `${eventSlug}-${password}`);
   const path = useAttendeePath();
   const s = summary.data;
 
@@ -94,7 +111,10 @@ function Dashboard({ password, onLock }: { password: string; onLock: () => void 
   return (
     <>
       <div className="row between">
-        <h1>Host page</h1>
+        <div>
+          <h1>Host page</h1>
+          {eventName && <div className="dim">{eventName}</div>}
+        </div>
         <div className="row">
           <Link className="btn" to={path()} style={{ display: 'grid', placeItems: 'center' }}>
             Open the attendee app

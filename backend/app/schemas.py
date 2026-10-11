@@ -7,7 +7,9 @@ Conventions
 - Prices and odds are fractions between 0 and 1 (0.27 = 27%). The UI formats them.
 - A payout multiple is 1 / price at the moment of the bet.
 - Stakes are whole Hackcoin. Balances can carry cents after a payout.
-- Market ids are 'overall', 'nimble', 'gemini', 'tiger_data': the same keys as Scout's scores.
+- Every market, team and player belongs to one event, named by its event_slug.
+- A market's score_key says which of Scout's scores prices it: 'overall', 'nimble', 'gemini' or
+  'tiger_data'. Market ids are unique across events, so the id itself no longer says.
 """
 
 from datetime import datetime
@@ -28,6 +30,7 @@ class Team(BaseModel):
     demo_url: str | None = None
     color: str
     creator_user_id: str | None = None
+    event_slug: str | None = None
 
 
 class TeamCreate(BaseModel):
@@ -36,6 +39,7 @@ class TeamCreate(BaseModel):
     repo_url: str | None = None
     demo_url: str | None = None
     creator_user_id: str | None = None
+    event_slug: str | None = None  # the event the team is entering
 
 
 # ---- Users -----------------------------------------------------------------
@@ -45,10 +49,12 @@ class User(BaseModel):
     id: str
     display_name: str
     balance: float
+    event_slug: str | None = None
 
 
 class UserCreate(BaseModel):
     display_name: str = Field(min_length=1, max_length=40)
+    event_slug: str | None = None  # the event being joined; its starting balance is what the player gets
 
 
 class LeaderboardEntry(BaseModel):
@@ -102,6 +108,8 @@ class MarketSummary(BaseModel):
     category: str
     status: MarketStatus
     winner_team_id: str | None = None
+    event_slug: str | None = None
+    score_key: str | None = None  # which of Scout's scores prices this market
 
 
 class MarketTeam(BaseModel):
@@ -247,7 +255,7 @@ class ScoutReport(BaseModel):
 
 class OddsPoint(BaseModel):
     time: datetime
-    market_id: str
+    market_id: str  # the score key ('overall', ...), not a market's id: ids differ from event to event
     odds: float
     note: str | None = None  # that run's change_note, shown beside the odds on the Scout reports tab
 
@@ -276,7 +284,9 @@ MarketId = Literal["overall", "nimble", "gemini", "tiger_data"]
 class EventCategory(BaseModel):
     name: str
     prize: str | None = None
-    market_id: MarketId | None = None  # set when the category maps to one of the four markets
+    market_id: MarketId | None = None  # the Scout score that fits this category, when one does
+    # Whether launching the event opens a market for this category. Left out, it follows market_id.
+    create_market: bool | None = None
 
 
 class EventExtractRequest(BaseModel):
@@ -305,7 +315,7 @@ class EventCreate(BaseModel):
     submissions_close_at: datetime | None = None
     source_url: str | None = None
     categories: list[EventCategory] = []
-    # Hackcoin each attendee starts with. Chosen at the first launch and fixed from then on.
+    # Hackcoin each attendee of this event starts with. Chosen at launch.
     starting_balance: int = Field(default=1000, ge=1, le=1_000_000)
 
 

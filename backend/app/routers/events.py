@@ -18,22 +18,34 @@ async def extract_event(body: EventExtractRequest):
     return await service.extract_event(url)
 
 
+@router.post("/events", response_model=Event, status_code=201, dependencies=[Depends(require_host)])
+async def create_event(body: EventCreate):
+    try:
+        return await service.create_event(body)
+    except service.EventError as e:
+        raise HTTPException(400, str(e))
+
+
+@router.get("/events/{slug}", response_model=Event)
+async def get_event(slug: str):
+    event = await service.get_event(slug)
+    if event is None:
+        raise HTTPException(404, "Event not found")
+    return event
+
+
 @router.get("/event", response_model=Event)
-async def get_event():
+async def get_first_event():
+    """The first event this deployment ran, for the landing page's "See a live market" link."""
     event = await service.get_event()
     if event is None:
         raise HTTPException(404, "No event has been set up yet")
     return event
 
 
-@router.put("/event", response_model=Event, dependencies=[Depends(require_host)])
-async def save_event(body: EventCreate):
-    try:
-        return await service.save_event(body)
-    except service.EventError as e:
-        raise HTTPException(400, str(e))
-
-
 @router.get("/host/summary", response_model=HostSummary, dependencies=[Depends(require_host)])
-async def host_summary():
-    return await service.host_summary()
+async def host_summary(event: str | None = None):
+    summary = await service.host_summary(event)
+    if summary is None:
+        raise HTTPException(404, "Event not found")
+    return summary

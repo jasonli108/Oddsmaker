@@ -6,7 +6,7 @@ CREATE EXTENSION IF NOT EXISTS timescaledb;
 
 CREATE TABLE IF NOT EXISTS teams (
     id          TEXT PRIMARY KEY,                -- slug, e.g. 'orbit'
-    name        TEXT NOT NULL UNIQUE,
+    name        TEXT NOT NULL,                   -- unique within its event, checked at sign-up
     idea        TEXT NOT NULL,
     repo_url    TEXT,
     demo_url    TEXT,
@@ -15,7 +15,7 @@ CREATE TABLE IF NOT EXISTS teams (
 );
 
 CREATE TABLE IF NOT EXISTS markets (
-    id              TEXT PRIMARY KEY,            -- 'overall' | 'nimble' | 'gemini' | 'tiger_data'; same keys as Scout's scores
+    id              TEXT PRIMARY KEY,            -- '<event-slug>--<category>'; the first event's are 'overall' | 'nimble' | 'gemini' | 'tiger_data'
     title           TEXT NOT NULL,               -- the question, e.g. 'Who takes 1st place overall?'
     category        TEXT NOT NULL,               -- the prize, e.g. 'Best overall'
     status          TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'resolved')),
@@ -97,11 +97,12 @@ SELECT add_continuous_aggregate_policy(
     if_not_exists     => TRUE
 );
 
--- The event this deployment is running. One row only: there is no multi-event support, and no
--- other table carries an event id. Written by the host setup flow (PUT /api/event).
+-- Events. A deployment runs many: each launch of the host setup flow (POST /api/events) adds one.
+-- An event owns its markets, teams and players through their event_slug; positions, bets,
+-- price_ticks and reports belong to an event through the market or team they point at.
 CREATE TABLE IF NOT EXISTS events (
-    id                    SMALLINT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
-    slug                  TEXT NOT NULL,
+    id                    SMALLINT PRIMARY KEY,
+    slug                  TEXT NOT NULL,           -- names the event in its link, /e/<slug>; never changes
     name                  TEXT NOT NULL,
     hosted_by             TEXT,
     location              TEXT,
@@ -114,3 +115,34 @@ CREATE TABLE IF NOT EXISTS events (
 );
 -- For databases that created the events table before starting_balance existed.
 ALTER TABLE events ADD COLUMN IF NOT EXISTS starting_balance INTEGER NOT NULL DEFAULT 1000 CHECK (starting_balance > 0);
+
+-- For databases from when there was one event only: it was pinned to id 1. It keeps that id, and
+-- new events are numbered from 2.
+ALTER TABLE events DROP CONSTRAINT IF EXISTS events_id_check;
+CREATE SEQUENCE IF NOT EXISTS events_id_seq START 2;
+ALTER SEQUENCE events_id_seq OWNED BY events.id;
+ALTER TABLE events ALTER COLUMN id SET DEFAULT nextval('events_id_seq');
+CREATE UNIQUE INDEX IF NOT EXISTS events_slug_idx ON events (slug);
+
+-- Which event a market, team or player belongs to. NULL only for rows made without an event
+-- (the test fixtures, or an old script).
+ALTER TABLE markets ADD COLUMN IF NOT EXISTS event_slug TEXT REFERENCES events (slug);
+ALTER TABLE teams ADD COLUMN IF NOT EXISTS event_slug TEXT REFERENCES events (slug);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS event_slug TEXT REFERENCES events (slug);
+CREATE INDEX IF NOT EXISTS markets_event_idx ON markets (event_slug);
+CREATE INDEX IF NOT EXISTS teams_event_idx ON teams (event_slug);
+CREATE INDEX IF NOT EXISTS users_event_idx ON users (event_slug);
+
+-- A market's id is unique across events ('<event-slug>--<category>'), so it no longer says which of
+-- Scout's scores prices it. score_key does: 'overall' | 'nimble' | 'gemini' | 'tiger_data'.
+-- NULL means the id is the key, as in the first event's markets.
+ALTER TABLE markets ADD COLUMN IF NOT EXISTS score_key TEXT;
+ALTER TABLE markets ADD COLUMN IF NOT EXISTS sort_order INTEGER NOT NULL DEFAULT 0;
+
+-- Two events can each have a team of the same name; the sign-up code checks the name within the event.
+ALTER TABLE teams DROP CONSTRAINT IF EXISTS teams_name_key;
+
+-- Rows from before events were separate belong to the event that was the only one then.
+UPDATE markets SET event_slug = (SELECT slug FROM events WHERE id = 1) WHERE event_slug IS NULL;
+UPDATE teams SET event_slug = (SELECT slug FROM events WHERE id = 1) WHERE event_slug IS NULL;
+UPDATE users SET event_slug = (SELECT slug FROM events WHERE id = 1) WHERE event_slug IS NULL;

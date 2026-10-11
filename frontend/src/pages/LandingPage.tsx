@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom';
 import BrandBar from '../components/BrandBar';
 import SampleMarket from '../components/SampleMarket';
 import { useAttendeePath } from '../hooks/useAttendeePath';
+import { useEvent } from '../hooks/useEvent';
 
 const navLink = { display: 'flex', alignItems: 'center', minHeight: 44, fontSize: 15 } as const;
 
@@ -14,12 +15,14 @@ const STEPS = [
 /** The front door for hackathon hosts. Attendees go straight to /e/:slug. */
 export default function LandingPage() {
   const path = useAttendeePath();
+  // The deployment's first event, if one has been launched. Each host's own link is on their setup screen.
+  const { slug: liveEvent } = useEvent();
 
   return (
     <div style={{ fontSize: 16, lineHeight: 1.5 }}>
       <BrandBar>
         <a href="#how" style={navLink}>How it works</a>
-        <Link to={path()} style={navLink}>See a live market</Link>
+        {liveEvent && <Link to={path()} style={navLink}>See a live market</Link>}
         <Link className="btn" to="/setup" style={{ ...navLink, padding: '0 18px', borderColor: 'var(--border-bold)' }}>
           Set up your hackathon
         </Link>
@@ -47,13 +50,15 @@ export default function LandingPage() {
             >
               Set up your hackathon
             </Link>
-            <Link
-              className="btn"
-              to={path()}
-              style={{ display: 'flex', alignItems: 'center', minHeight: 54, padding: '0 22px', borderRadius: 10, fontSize: 17 }}
-            >
-              See a live market
-            </Link>
+            {liveEvent && (
+              <Link
+                className="btn"
+                to={path()}
+                style={{ display: 'flex', alignItems: 'center', minHeight: 54, padding: '0 22px', borderRadius: 10, fontSize: 17 }}
+              >
+                See a live market
+              </Link>
+            )}
           </div>
           <div className="dim" style={{ fontSize: 14 }}>Takes about two minutes. Play money only, never real wagers.</div>
         </div>

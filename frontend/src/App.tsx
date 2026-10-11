@@ -1,7 +1,8 @@
-import { Navigate, Outlet, Route, Routes, useLocation } from 'react-router-dom';
+import { Link, Navigate, Outlet, Route, Routes, useLocation } from 'react-router-dom';
 import BrandBar from './components/BrandBar';
 import Header from './components/Header';
 import { useAttendeePath } from './hooks/useAttendeePath';
+import { useEvent } from './hooks/useEvent';
 import HostPage from './pages/HostPage';
 import LandingPage from './pages/LandingPage';
 import LeaderboardPage from './pages/LeaderboardPage';
@@ -22,11 +23,12 @@ export default function App() {
       <Route path="/setup" element={<SetupLayout />}>
         <Route index element={<SetupLinkPage />} />
         <Route path="review" element={<SetupReviewPage />} />
-        <Route path="live" element={<SetupLivePage />} />
+        <Route path="live/:slug" element={<SetupLivePage />} />
       </Route>
-      <Route path="/host" element={<HostLayout />} />
+      <Route path="/host/:slug" element={<HostLayout />} />
+      <Route path="/host" element={<FirstEventHostPage />} />
 
-      {/* For attendees. The slug names the event in the link; it is not used to fetch anything. */}
+      {/* For attendees. The slug says which event: each has its own markets, teams and players. */}
       <Route path="/e/:slug" element={<AttendeeLayout />}>
         <Route index element={<MarketsPage />} />
         <Route path="reports" element={<ReportsPage />} />
@@ -49,12 +51,37 @@ export default function App() {
 }
 
 function AttendeeLayout() {
+  const { notFound } = useEvent();
+  if (notFound) return <EventNotFound />;
   return (
     <>
       <Header />
       <Outlet />
     </>
   );
+}
+
+/** For a link to an event that was never launched here, e.g. a mistyped address. */
+function EventNotFound() {
+  return (
+    <>
+      <BrandBar />
+      <div className="container stack" style={{ paddingTop: 40, maxWidth: 560, alignItems: 'flex-start' }}>
+        <h1>We can't find that event</h1>
+        <div className="dim">Check the link you were given, or ask the organiser to share it again.</div>
+        <Link className="btn" to="/" style={{ display: 'grid', placeItems: 'center' }}>
+          Go to Oddsmaker
+        </Link>
+      </div>
+    </>
+  );
+}
+
+/** /host without an event in the address: the first event's host page, or home if there is none. */
+function FirstEventHostPage() {
+  const { ready, slug } = useEvent();
+  if (!ready) return null;
+  return <Navigate to={slug ? `/host/${slug}` : '/'} replace />;
 }
 
 function HostLayout() {
@@ -68,6 +95,8 @@ function HostLayout() {
 
 function MovedToAttendeeApp() {
   const path = useAttendeePath();
+  const { ready } = useEvent();
   const { pathname, search } = useLocation();
+  if (!ready) return null;
   return <Navigate to={path(pathname) + search} replace />;
 }

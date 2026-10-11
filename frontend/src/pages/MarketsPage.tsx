@@ -9,19 +9,24 @@ import TeamRow from '../components/TeamRow';
 import TradeFeed from '../components/TradeFeed';
 import { coin, plural } from '../format';
 import { useAttendeePath } from '../hooks/useAttendeePath';
+import { useEventSlug } from '../hooks/useEvent';
 import { usePolling } from '../hooks/usePolling';
 
 export default function MarketsPage() {
-  // /?market=gemini&team=orbit opens that market with that team picked, e.g. from a Scout report.
+  // ?market=<id>&team=orbit opens that market with that team picked, e.g. from a Scout report.
   const [params] = useSearchParams();
   const path = useAttendeePath();
-  const [marketId, setMarketId] = useState(params.get('market') ?? 'overall');
+  const eventSlug = useEventSlug();
+  const [chosenId, setMarketId] = useState(params.get('market'));
   const [pickedTeamId, setPickedTeamId] = useState(params.get('team'));
 
-  const markets = usePolling(api.listMarkets, 'markets', 0);
-  const market = usePolling(() => api.getMarket(marketId), marketId);
-  const history = usePolling(() => api.getHistory(marketId), marketId);
-  const feed = usePolling(() => api.getFeed(marketId), marketId);
+  const markets = usePolling(() => api.listMarkets(eventSlug), `markets-${eventSlug}`, 0);
+  // Only ever one of this event's markets, whatever the address asks for. The first until one is chosen.
+  const marketId = (markets.data?.find((mk) => mk.id === chosenId) ?? markets.data?.[0])?.id;
+  const key = marketId ?? 'none';
+  const market = usePolling(() => (marketId ? api.getMarket(marketId) : Promise.resolve(null)), key);
+  const history = usePolling(() => (marketId ? api.getHistory(marketId) : Promise.resolve(null)), key);
+  const feed = usePolling(() => (marketId ? api.getFeed(marketId) : Promise.resolve(null)), key);
 
   const m = market.data;
   const teams = m?.teams ?? [];
@@ -51,7 +56,11 @@ export default function MarketsPage() {
               </button>
             ))}
           </div>
-          {!m && !market.error && <div className="dim">Loading market…</div>}
+          {markets.error && !markets.data && (
+            <div className="error">Could not load this event's markets: {markets.error.message}</div>
+          )}
+          {markets.data?.length === 0 && <div className="dim">This event has no markets.</div>}
+          {!m && !market.error && !markets.error && markets.data?.length !== 0 && <div className="dim">Loading market…</div>}
           {!m && market.error && <div className="error">Could not load this market: {market.error.message}</div>}
           {m && (
             <>

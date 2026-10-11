@@ -1,10 +1,10 @@
 import { QRCodeSVG } from 'qrcode.react';
 import { useEffect, useState } from 'react';
 import { Link, Navigate } from 'react-router-dom';
-import { ApiError, api } from '../../api/client';
+import { api } from '../../api/client';
 import { coin, plural } from '../../format';
-import { STARTING_BALANCE } from '../../config';
 import { publicOrigin } from '../../host';
+import { useEvent, useEventSlug } from '../../hooks/useEvent';
 import { usePolling } from '../../hooks/usePolling';
 
 const NEXT = [
@@ -13,10 +13,11 @@ const NEXT = [
   { when: 'After judging', title: 'You pick the winners', body: 'Markets pay out and the leaderboard names your best forecaster.' },
 ];
 
-/** Setup step 3: the event is saved. Hand the host the link and QR code to share. */
+/** Setup step 3: the event is launched. Hand the host its own link and QR code to share. */
 export default function SetupLivePage() {
-  const event = usePolling(api.getEvent, 'setup-live', 0);
-  const markets = usePolling(api.listMarkets, 'setup-live-markets', 0);
+  const slug = useEventSlug();
+  const { event, ready, notFound, startingBalance } = useEvent();
+  const markets = usePolling(() => api.listMarkets(slug), `setup-live-markets-${slug}`, 0);
   const [copied, setCopied] = useState(false);
   const [bigQr, setBigQr] = useState(false);
 
@@ -27,17 +28,17 @@ export default function SetupLivePage() {
     return () => window.removeEventListener('keydown', close);
   }, [bigQr]);
 
-  // Opened directly before any event was launched.
-  if (event.error instanceof ApiError && event.error.status === 404) return <Navigate to="/setup" replace />;
-  if (!event.data) {
+  // Opened for an event that was never launched.
+  if (notFound) return <Navigate to="/setup" replace />;
+  if (!event) {
     return (
-      <div style={{ maxWidth: 1040, margin: '0 auto', padding: '56px 24px' }} className={event.error ? 'error' : 'dim'}>
-        {event.error ? `Could not load your event: ${event.error.message}` : 'Loading…'}
+      <div style={{ maxWidth: 1040, margin: '0 auto', padding: '56px 24px' }} className={ready ? 'error' : 'dim'}>
+        {ready ? "Could not load your event. Check your connection and reload." : 'Loading…'}
       </div>
     );
   }
 
-  const path = `/e/${event.data.slug}`;
+  const path = `/e/${slug}`;
   const link = publicOrigin() + path;
   const openMarkets = markets.data?.filter((m) => m.status === 'open').length;
 
@@ -62,10 +63,11 @@ export default function SetupLivePage() {
           </div>
         )}
         <h1 style={{ fontSize: 'clamp(32px, 5.5vw, 48px)', letterSpacing: '-0.03em', lineHeight: 1.06 }}>
-          {event.data.name} is live.
+          {event.name} is live.
         </h1>
         <div className="soft" style={{ fontSize: 18 }}>
-          Share the link below. A team shows up in every market as soon as it adds its project.
+          Share the link below. It opens this event only: its own markets, teams and players. A team shows up in
+          every market as soon as it adds its project.
         </div>
       </div>
 
@@ -97,7 +99,7 @@ export default function SetupLivePage() {
           <div className="stack" style={{ borderTop: '1px solid var(--border)', paddingTop: 16, gap: 8 }}>
             <div className="small" style={{ color: 'var(--amber)' }}>For you, the host</div>
             <div className="row" style={{ gap: 10 }}>
-              <Link className="btn" to="/host" style={{ display: 'flex', alignItems: 'center', minHeight: 48, padding: '0 18px', borderRadius: 10, fontSize: 15 }}>
+              <Link className="btn" to={`/host/${slug}`} style={{ display: 'flex', alignItems: 'center', minHeight: 48, padding: '0 18px', borderRadius: 10, fontSize: 15 }}>
                 Open the host page
               </Link>
             </div>
@@ -113,7 +115,7 @@ export default function SetupLivePage() {
             <QRCodeSVG value={link} role="img" aria-label={`QR code for ${link}`} bgColor="#ECEFF1" fgColor="#0F1214" style={{ display: 'block', width: '100%', height: 'auto' }} />
           </div>
           <div style={{ fontSize: 15, fontWeight: 500, textAlign: 'center' }}>
-            Scan to join and get {coin(event.data.starting_balance ?? STARTING_BALANCE)} Hackcoin
+            Scan to join and get {coin(startingBalance)} Hackcoin
           </div>
           <div className="dim small" style={{ textAlign: 'center' }}>Put this on the big screen at kickoff.</div>
         </div>
@@ -142,7 +144,7 @@ export default function SetupLivePage() {
         >
           <div className="stack" style={{ alignItems: 'center', gap: 24, maxWidth: '100%' }}>
             <div style={{ fontSize: 'clamp(24px, 4vw, 44px)', fontWeight: 600, letterSpacing: '-0.02em', textAlign: 'center' }}>
-              Scan to join {event.data.name}
+              Scan to join {event.name}
             </div>
             <div style={{ background: '#ECEFF1', borderRadius: 16, padding: 24, width: 'min(60vh, 80vw)' }}>
               <QRCodeSVG value={link} bgColor="#ECEFF1" fgColor="#0F1214" style={{ display: 'block', width: '100%', height: 'auto' }} />

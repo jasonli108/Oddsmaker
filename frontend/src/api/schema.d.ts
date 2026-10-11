@@ -11,7 +11,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Markets */
+        /**
+         * List Markets
+         * @description One event's markets (?event=<slug>), or every market when no event is given.
+         */
         get: operations["list_markets_api_markets_get"];
         put?: never;
         post?: never;
@@ -243,7 +246,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/event": {
+    "/api/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create Event */
+        post: operations["create_event_api_events_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/events/{slug}": {
         parameters: {
             query?: never;
             header?: never;
@@ -251,9 +271,28 @@ export interface paths {
             cookie?: never;
         };
         /** Get Event */
-        get: operations["get_event_api_event_get"];
-        /** Save Event */
-        put: operations["save_event_api_event_put"];
+        get: operations["get_event_api_events__slug__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/event": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get First Event
+         * @description The first event this deployment ran, for the landing page's "See a live market" link.
+         */
+        get: operations["get_first_event_api_event_get"];
+        put?: never;
         post?: never;
         delete?: never;
         options?: never;
@@ -396,6 +435,8 @@ export interface components {
             prize?: string | null;
             /** Market Id */
             market_id?: ("overall" | "nimble" | "gemini" | "tiger_data") | null;
+            /** Create Market */
+            create_market?: boolean | null;
         };
         /** EventCreate */
         EventCreate: {
@@ -542,6 +583,10 @@ export interface components {
             status: "open" | "resolved";
             /** Winner Team Id */
             winner_team_id?: string | null;
+            /** Event Slug */
+            event_slug?: string | null;
+            /** Score Key */
+            score_key?: string | null;
             totals: components["schemas"]["MarketTotals"];
             /** Teams */
             teams: components["schemas"]["MarketTeam"][];
@@ -568,6 +613,10 @@ export interface components {
             status: "open" | "resolved";
             /** Winner Team Id */
             winner_team_id?: string | null;
+            /** Event Slug */
+            event_slug?: string | null;
+            /** Score Key */
+            score_key?: string | null;
         };
         /** MarketTeam */
         MarketTeam: {
@@ -745,6 +794,8 @@ export interface components {
             color: string;
             /** Creator User Id */
             creator_user_id?: string | null;
+            /** Event Slug */
+            event_slug?: string | null;
         };
         /** TeamCreate */
         TeamCreate: {
@@ -758,6 +809,8 @@ export interface components {
             demo_url?: string | null;
             /** Creator User Id */
             creator_user_id?: string | null;
+            /** Event Slug */
+            event_slug?: string | null;
         };
         /** TeamReport */
         TeamReport: {
@@ -789,6 +842,8 @@ export interface components {
             display_name: string;
             /** Balance */
             balance: number;
+            /** Event Slug */
+            event_slug?: string | null;
         };
         /** UserBet */
         UserBet: {
@@ -838,6 +893,8 @@ export interface components {
         UserCreate: {
             /** Display Name */
             display_name: string;
+            /** Event Slug */
+            event_slug?: string | null;
         };
         /** UserSummary */
         UserSummary: {
@@ -885,7 +942,9 @@ export type $defs = Record<string, never>;
 export interface operations {
     list_markets_api_markets_get: {
         parameters: {
-            query?: never;
+            query?: {
+                event?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -899,6 +958,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MarketSummary"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -1068,7 +1136,9 @@ export interface operations {
     };
     list_teams_api_teams_get: {
         parameters: {
-            query?: never;
+            query?: {
+                event?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -1082,6 +1152,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Team"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -1278,7 +1357,9 @@ export interface operations {
     };
     get_leaderboard_api_leaderboard_get: {
         parameters: {
-            query?: never;
+            query?: {
+                event?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -1292,6 +1373,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LeaderboardEntry"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -1329,27 +1419,7 @@ export interface operations {
             };
         };
     };
-    get_event_api_event_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Event"];
-                };
-            };
-        };
-    };
-    save_event_api_event_put: {
+    create_event_api_events_post: {
         parameters: {
             query?: never;
             header?: {
@@ -1363,6 +1433,37 @@ export interface operations {
                 "application/json": components["schemas"]["EventCreate"];
             };
         };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Event"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_event_api_events__slug__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             /** @description Successful Response */
             200: {
@@ -1384,9 +1485,31 @@ export interface operations {
             };
         };
     };
-    host_summary_api_host_summary_get: {
+    get_first_event_api_event_get: {
         parameters: {
             query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Event"];
+                };
+            };
+        };
+    };
+    host_summary_api_host_summary_get: {
+        parameters: {
+            query?: {
+                event?: string | null;
+            };
             header?: {
                 "x-host-password"?: string;
             };

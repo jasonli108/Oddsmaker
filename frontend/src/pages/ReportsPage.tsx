@@ -2,9 +2,10 @@ import { Link, NavLink, useParams } from 'react-router-dom';
 import { api } from '../api/client';
 import type { MarketTeam, ScoutReport, TeamReport } from '../api/types';
 import Stat from '../components/Stat';
-import { HEADLINE_MARKET_ID, SCOUT_INTERVAL_MS } from '../config';
+import { HEADLINE_SCORE_KEY, SCOUT_INTERVAL_MS } from '../config';
 import { clock, countdown, pct, plural, points } from '../format';
 import { useAttendeePath } from '../hooks/useAttendeePath';
+import { useEventSlug } from '../hooks/useEvent';
 import { useNow } from '../hooks/useNow';
 import { usePolling } from '../hooks/usePolling';
 import { labelColor, sourceKindLabel } from '../scout';
@@ -16,7 +17,14 @@ const NOTABLE_GAP_POINTS = 5;
 export default function ReportsPage() {
   const { teamId } = useParams();
   const path = useAttendeePath();
-  const market = usePolling(() => api.getMarket(HEADLINE_MARKET_ID), 'reports-market');
+  const eventSlug = useEventSlug();
+  // The event's overall market, or its first one if the host opened none for the overall prize.
+  const markets = usePolling(() => api.listMarkets(eventSlug), `reports-markets-${eventSlug}`, 0);
+  const headline = markets.data?.find((mk) => mk.score_key === HEADLINE_SCORE_KEY) ?? markets.data?.[0];
+  const market = usePolling(
+    () => (headline ? api.getMarket(headline.id) : Promise.resolve(null)),
+    headline?.id ?? 'none',
+  );
   const teams = market.data?.teams ?? [];
 
   // A team that has just signed up has a report page before it shows up in the market.
@@ -55,6 +63,7 @@ export default function ReportsPage() {
             data={report.data}
             marketTeam={teams.find((t) => t.team_id === report.data?.team.id)}
             marketOpen={market.data?.status === 'open'}
+            scoreKey={headline?.score_key ?? HEADLINE_SCORE_KEY}
           />
         )}
       </div>
@@ -121,11 +130,13 @@ type ReportProps = {
   /** Missing while a newly signed-up team is not in the market yet. */
   marketTeam: MarketTeam | undefined;
   marketOpen: boolean;
+  /** Which of Scout's scores prices the market shown beside the report. */
+  scoreKey: string;
 };
 
-function Report({ data, marketTeam, marketOpen }: ReportProps) {
+function Report({ data, marketTeam, marketOpen, scoreKey }: ReportProps) {
   const { team, report } = data;
-  const history = data.odds_history.filter((p) => p.market_id === HEADLINE_MARKET_ID);
+  const history = data.odds_history.filter((p) => p.market_id === scoreKey);
   const path = useAttendeePath();
 
   return (

@@ -1,7 +1,9 @@
 """The host flow backend: reading an event page, saving the event, and the host page's numbers."""
 
 import pytest
+from psycopg.types.json import Jsonb
 
+from app import sample_data
 from app.config import get_settings
 from app.events import service as events
 from app.schemas import EventCategory, EventDraft
@@ -89,107 +91,208 @@ def test_categories_map_to_the_four_markets(name, market_id):
     assert events.market_id_for(name) == market_id
 
 
-# ---- Saving and reading the event ------------------------------------------
+# ---- Launching an event -----------------------------------------------------
+
+
+def launch(client, **changes) -> dict:
+    res = client.post("/api/events", json={**EVENT, **changes}, headers=HOST)
+    assert res.status_code == 201, res.text
+    return res.json()
+
+
+def join(client, name="Maya", event=None) -> dict:
+    res = client.post("/api/users", json={"display_name": name, "event_slug": event})
+    assert res.status_code == 201, res.text
+    return res.json()
+
+
+def sign_up(client, name, event):
+    return client.post("/api/teams", json={"name": name, "idea": "An idea", "event_slug": event})
+
+
+def markets_of(client, event) -> list[dict]:
+    return client.get("/api/markets", params={"event": event}).json()
 
 
 def test_there_is_no_event_before_setup(client):
     assert client.get("/api/event").status_code == 404
+    assert client.get("/api/events/ai-engineer-nyc-2026").status_code == 404
+    assert client.get("/api/host/summary", params={"event": "nope"}, headers=HOST).status_code == 404
 
 
-def test_launch_saves_the_event(client):
-    res = client.put("/api/event", json=EVENT, headers=HOST)
-    assert res.status_code == 200
-    saved = res.json()
+def test_launch_saves_the_event_and_opens_its_markets(client):
+    saved = launch(client)
     assert saved["slug"] == "ai-engineer-nyc-2026"
-    assert saved["categories"] == EVENT["categories"]
     assert saved["submissions_close_at"] in ("2026-10-11T23:59:00-04:00", "2026-10-12T03:59:00Z")
-    assert client.get("/api/event").json() == saved
+    assert client.get("/api/events/ai-engineer-nyc-2026").json() == saved
+    assert client.get("/api/event").json() == saved  # the first event
+    # A market for the category that asked for one, and none for the other.
+    assert [(c["name"], c["create_market"]) for c in saved["categories"]] == [
+        ("Best overall", True), ("Best use of Snowflake", False),
+    ]
+    assert [(m["id"], m["title"], m["score_key"], m["status"]) for m in markets_of(client, saved["slug"])] == [
+        ("ai-engineer-nyc-2026--best-overall", "Who wins Best overall?", "overall", "open"),
+    ]
+    market = client.get("/api/markets/ai-engineer-nyc-2026--best-overall").json()
+    assert market["teams"] == [] and market["event_slug"] == saved["slug"]
 
 
-def test_saving_again_replaces_the_single_event(client, db):
-    client.put("/api/event", json=EVENT, headers=HOST)
-    client.put("/api/event", json={"name": "Renamed Hack", "categories": []}, headers=HOST)
-    assert db.execute("SELECT count(*) FROM events").fetchone()[0] == 1
-    event = client.get("/api/event").json()
-    assert (event["slug"], event["location"], event["categories"]) == ("renamed-hack", None, [])
+def test_the_host_decides_which_categories_get_a_market(client):
+    categories = [
+        {"name": "Best design", "create_market": True},  # no Scout score of its own: priced by the overall score
+        {"name": "Best use of Gemini API", "prize": "Swag", "create_market": True},
+        {"name": "Best overall", "market_id": "overall", "create_market": False},
+        {"name": "Best Design!", "create_market": True},  # boils down to the same id as the first
+    ]
+    event = launch(client, name="Design Jam", categories=categories)
+    assert [(m["id"], m["category"], m["score_key"]) for m in markets_of(client, event["slug"])] == [
+        ("design-jam--best-design", "Best design", "overall"),
+        ("design-jam--best-use-of-gemini-api", "Best use of Gemini API", "gemini"),
+        ("design-jam--best-design-2", "Best Design!", "overall"),
+    ]
 
 
-def test_saving_needs_the_host_password_and_a_name(client):
-    assert client.put("/api/event", json=EVENT).status_code == 401
-    assert client.put("/api/event", json=EVENT, headers={"X-Host-Password": "wrong"}).status_code == 401
-    assert client.put("/api/event", json={**EVENT, "name": ""}, headers=HOST).status_code == 422
+def test_every_launch_is_its_own_event(client, db):
+    first = launch(client, starting_balance=500)
+    second = launch(client, starting_balance=2000)
+    assert (first["slug"], second["slug"]) == ("ai-engineer-nyc-2026", "ai-engineer-nyc-2026-2")
+    assert db.execute("SELECT count(*) FROM events").fetchone()[0] == 2
+    assert client.get(f"/api/events/{first['slug']}").json()["starting_balance"] == 500
+    assert markets_of(client, first["slug"])[0]["id"] != markets_of(client, second["slug"])[0]["id"]
+    # Each event hands out its own starting amount.
+    assert join(client, "Maya", first["slug"])["balance"] == 500
+    assert join(client, "Maya", second["slug"])["balance"] == 2000
+
+
+def test_events_do_not_share_teams_players_or_markets(client):
+    alpha, beta = launch(client, name="Alpha Hack"), launch(client, name="Beta Hack")
+    a, b = alpha["slug"], beta["slug"]
+    a_market, b_market = markets_of(client, a)[0]["id"], markets_of(client, b)[0]["id"]
+
+    owls = sign_up(client, "Night Owls", a).json()
+    assert owls["event_slug"] == a
+    assert [t["id"] for t in client.get("/api/teams", params={"event": a}).json()] == ["night-owls"]
+    assert client.get("/api/teams", params={"event": b}).json() == []
+    assert [t["team_id"] for t in client.get(f"/api/markets/{a_market}").json()["teams"]] == ["night-owls"]
+    assert client.get(f"/api/markets/{b_market}").json()["teams"] == []
+    assert client.get("/api/markets/overall").json()["totals"]["team_count"] == 6  # the fixture's market
+
+    # The same team name is free in another event, and taken in its own.
+    assert sign_up(client, "Night Owls", a).status_code == 400
+    other_owls = sign_up(client, "Night Owls", b)
+    assert other_owls.status_code == 201 and other_owls.json()["id"] == "night-owls-2"
+
+    # A player belongs to the event they joined: their Hackcoin can't be staked anywhere else.
+    maya = join(client, "Maya", a)
+    assert maya["event_slug"] == a
+    elsewhere = client.post("/api/bets", json={"user_id": maya["id"], "market_id": b_market, "team_id": "night-owls-2", "stake": 10})
+    assert elsewhere.status_code == 400 and "different event" in elsewhere.json()["detail"]
+    here = client.post("/api/bets", json={"user_id": maya["id"], "market_id": a_market, "team_id": "night-owls", "stake": 10})
+    assert here.status_code == 200
+
+    assert [e["display_name"] for e in client.get("/api/leaderboard", params={"event": a}).json()] == ["Maya"]
+    assert client.get("/api/leaderboard", params={"event": b}).json() == []
+
+    in_a = client.get("/api/host/summary", params={"event": a}, headers=HOST).json()
+    in_b = client.get("/api/host/summary", params={"event": b}, headers=HOST).json()
+    assert (in_a["attendees"], in_a["teams"], in_a["bets"], in_a["hackcoin_traded"]) == (1, 1, 1, 10)
+    assert (in_b["attendees"], in_b["teams"], in_b["bets"], in_b["hackcoin_traded"]) == (0, 1, 0, 0)
+    assert [m["id"] for m in in_a["markets"]] == [a_market] and in_a["markets"][0]["staked"] == 10
+    assert [f["display_name"] for f in in_a["top_forecasters"]] == ["Maya"] and in_b["top_forecasters"] == []
+
+
+def test_launching_needs_the_host_password_a_name_and_a_market(client):
+    assert client.post("/api/events", json=EVENT).status_code == 401
+    assert client.post("/api/events", json=EVENT, headers={"X-Host-Password": "wrong"}).status_code == 401
+    assert client.post("/api/events", json={**EVENT, "name": ""}, headers=HOST).status_code == 422
     bad_market = {**EVENT, "categories": [{"name": "Best pizza", "market_id": "pizza"}]}
-    assert client.put("/api/event", json=bad_market, headers=HOST).status_code == 422
+    assert client.post("/api/events", json=bad_market, headers=HOST).status_code == 422
+    for categories in ([], [{"name": "Best overall", "market_id": "overall", "create_market": False}]):
+        no_market = client.post("/api/events", json={**EVENT, "categories": categories}, headers=HOST)
+        assert no_market.status_code == 400 and "at least one" in no_market.json()["detail"]
     assert client.get("/api/event").status_code == 404
 
 
-def test_saving_the_event_never_touches_markets(client, db):
-    before = db.execute("SELECT count(*) FROM markets").fetchone()[0], db.execute("SELECT count(*) FROM positions").fetchone()[0]
-    client.put("/api/event", json=EVENT, headers=HOST)
-    after = db.execute("SELECT count(*) FROM markets").fetchone()[0], db.execute("SELECT count(*) FROM positions").fetchone()[0]
-    assert before == after == (4, 24)
+def test_joining_or_signing_up_for_an_unknown_event_is_refused(client):
+    assert client.post("/api/users", json={"display_name": "Maya", "event_slug": "nope"}).status_code == 400
+    assert sign_up(client, "Night Owls", "nope").status_code == 400
 
 
-# ---- Starting balance: chosen at launch, fixed afterwards -------------------
-
-
-def join(client, name="Maya") -> dict:
-    return client.post("/api/users", json={"display_name": name}).json()
+# ---- Starting balance: the host's choice, per event --------------------------
 
 
 def test_starting_balance_defaults_to_1000(client):
-    assert join(client, "Before launch")["balance"] == 1000
-    saved = client.put("/api/event", json=EVENT, headers=HOST).json()
-    assert saved["starting_balance"] == 1000
-    assert join(client, "After launch")["balance"] == 1000
+    event = launch(client)
+    assert event["starting_balance"] == 1000
+    assert join(client, "In the event", event["slug"])["balance"] == 1000
 
 
-def test_the_host_chooses_the_starting_balance_at_launch(client):
-    saved = client.put("/api/event", json={**EVENT, "starting_balance": 500}, headers=HOST).json()
-    assert saved["starting_balance"] == 500
-    assert client.get("/api/event").json()["starting_balance"] == 500
-    user = join(client)
+def test_the_host_chooses_the_starting_balance(client):
+    event = launch(client, starting_balance=500)
+    sign_up(client, "Night Owls", event["slug"])
+    user = join(client, event=event["slug"])
     assert user["balance"] == 500
     # The whole amount is theirs to stake, and no more than that.
-    bet = {"user_id": user["id"], "market_id": "overall", "team_id": "orbit"}
+    bet = {"user_id": user["id"], "market_id": markets_of(client, event["slug"])[0]["id"], "team_id": "night-owls"}
     assert client.post("/api/bets", json={**bet, "stake": 501}).status_code == 400
     assert client.post("/api/bets", json={**bet, "stake": 500}).json()["new_balance"] == 0
 
 
-def test_starting_balance_cannot_change_after_launch(client):
-    client.put("/api/event", json={**EVENT, "starting_balance": 500}, headers=HOST)
-    changed = client.put("/api/event", json={**EVENT, "starting_balance": 2000}, headers=HOST)
-    assert changed.status_code == 400 and "can't be changed" in changed.json()["detail"]
-    # Leaving it out means the default of 1,000, which is also a change.
-    assert client.put("/api/event", json=EVENT, headers=HOST).status_code == 400
-    assert client.get("/api/event").json()["starting_balance"] == 500
-    assert join(client)["balance"] == 500
-
-
-def test_other_details_can_still_be_edited_after_launch(client):
-    client.put("/api/event", json={**EVENT, "starting_balance": 500}, headers=HOST)
-    renamed = client.put("/api/event", json={**EVENT, "name": "Renamed Hack", "starting_balance": 500}, headers=HOST)
-    assert renamed.status_code == 200
-    assert (renamed.json()["name"], renamed.json()["starting_balance"]) == ("Renamed Hack", 500)
-
-
 def test_net_profit_does_not_assume_a_1000_start(client):
-    client.put("/api/event", json={**EVENT, "starting_balance": 500}, headers=HOST)
-    user = join(client)
+    event = launch(client, starting_balance=500)
+    market_id = markets_of(client, event["slug"])[0]["id"]
+    sign_up(client, "Night Owls", event["slug"])
+    sign_up(client, "Early Birds", event["slug"])
+    user = join(client, event=event["slug"])
     summary = lambda: client.get(f"/api/users/{user['id']}/summary").json()  # noqa: E731
     assert summary()["net_profit"] == 0  # not -500
-    bet = client.post("/api/bets", json={"user_id": user["id"], "market_id": "overall", "team_id": "orbit", "stake": 100}).json()
+    bet = client.post("/api/bets", json={"user_id": user["id"], "market_id": market_id, "team_id": "night-owls", "stake": 100}).json()
+    assert bet["multiple"] == pytest.approx(2)  # two teams, neither seeded yet
     assert summary()["net_profit"] == -100
-    client.post("/api/markets/overall/resolve", json={"winner_team_id": "orbit"}, headers=HOST)
+    client.post(f"/api/markets/{market_id}/resolve", json={"winner_team_id": "night-owls"}, headers=HOST)
     after = summary()
-    assert after["net_profit"] == pytest.approx(bet["potential_payout"] - 100)
-    assert after["user"]["balance"] == pytest.approx(500 + after["net_profit"])
+    assert after["net_profit"] == pytest.approx(100) and after["rank"] == 1
+    assert after["user"]["balance"] == pytest.approx(600)
 
 
 @pytest.mark.parametrize("amount", [0, -100, 1_000_001, 12.5, "lots"])
 def test_starting_balance_must_be_a_sensible_whole_number(client, amount):
-    assert client.put("/api/event", json={**EVENT, "starting_balance": amount}, headers=HOST).status_code == 422
+    assert client.post("/api/events", json={**EVENT, "starting_balance": amount}, headers=HOST).status_code == 422
     assert client.get("/api/event").status_code == 404
+
+
+# ---- Scout prices each event on its own -------------------------------------
+
+
+def save_report(db, team_id, **scores):
+    body = sample_data.team_report("orbit").report.model_dump(mode="json")
+    body["team_id"] = team_id
+    body["scores"].update(scores)
+    db.execute("INSERT INTO reports (team_id, body) VALUES (%s, %s)", (team_id, Jsonb(body)))
+
+
+def test_scout_prices_a_market_from_its_own_events_teams(client, db, call):
+    categories = [
+        {"name": "Best use of Gemini", "create_market": True},
+        {"name": "Best design", "create_market": True},
+    ]
+    event = launch(client, name="Alpha Hack", categories=categories)
+    gemini_market, design_market = (m["id"] for m in markets_of(client, event["slug"]))
+    sign_up(client, "Night Owls", event["slug"])
+    sign_up(client, "Early Birds", event["slug"])
+    save_report(db, "night-owls", overall=75, gemini=100)
+    save_report(db, "orbit", overall=100)  # a team in another event must not move this one
+    call(pipeline.reprice_markets)
+
+    odds = lambda market_id: {t["team_id"]: t["scout_odds"] for t in client.get(f"/api/markets/{market_id}").json()["teams"]}  # noqa: E731
+    # Early Birds has no report yet, so it counts as a neutral 50. The seed is split to the cent, hence abs.
+    assert odds(gemini_market) == pytest.approx({"night-owls": 100 / 150, "early-birds": 50 / 150}, abs=1e-4)
+    assert odds(design_market) == pytest.approx({"night-owls": 75 / 125, "early-birds": 50 / 125}, abs=1e-4)  # the overall score
+    assert set(odds("overall")) == set(sample_data.TEAMS_BY_ID)  # the fixture's market has only its own teams
+    assert odds("overall")["orbit"] == pytest.approx(100 / 350, abs=1e-4)
+
+    history = client.get("/api/teams/night-owls/report").json()["odds_history"]
+    assert {p["market_id"]: p["odds"] for p in history}["gemini"] == pytest.approx(100 / 150, abs=1e-4)
 
 
 # ---- The host page ---------------------------------------------------------

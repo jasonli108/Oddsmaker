@@ -8,7 +8,10 @@ router = APIRouter(tags=["users"])
 
 @router.post("/users", response_model=User, status_code=201)
 async def create_user(body: UserCreate):
-    return await service.create_user(body.display_name)
+    try:
+        return await service.create_user(body.display_name, body.event_slug)
+    except service.MarketError as e:
+        raise HTTPException(400, str(e))
 
 
 @router.get("/users/{user_id}", response_model=User)
@@ -36,5 +39,5 @@ async def get_user_bets(user_id: str):
 
 
 @router.get("/leaderboard", response_model=list[LeaderboardEntry])
-async def get_leaderboard():
-    return await service.get_leaderboard()
+async def get_leaderboard(event: str | None = None):
+    return await service.get_leaderboard(event_slug=event)

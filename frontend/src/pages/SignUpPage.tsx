@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { ApiError, api } from '../api/client';
 import type { Team } from '../api/types';
 import { useAttendeePath } from '../hooks/useAttendeePath';
+import { useEventSlug } from '../hooks/useEvent';
 import { useUser } from '../hooks/useUser';
 
 const NAME_MAX = 60;
@@ -29,6 +30,7 @@ export default function SignUpPage() {
   const [busy, setBusy] = useState(false);
   const [created, setCreated] = useState<Team | null>(null);
   const path = useAttendeePath();
+  const eventSlug = useEventSlug();
 
   const set = (field: Field) => (e: { target: { value: string } }) => {
     setForm((f) => ({ ...f, [field]: e.target.value }));
@@ -59,6 +61,7 @@ export default function SignUpPage() {
         repo_url: form.repo_url.trim() || null,
         demo_url: form.demo_url.trim() || null,
         creator_user_id: user?.id ?? null,
+        event_slug: eventSlug,
       });
       try {
         const stored = JSON.parse(localStorage.getItem('oddsmaker.myTeams') || '[]');

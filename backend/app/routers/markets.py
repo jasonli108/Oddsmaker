@@ -10,8 +10,9 @@ router = APIRouter(prefix="/markets", tags=["markets"])
 
 
 @router.get("", response_model=list[MarketSummary])
-async def list_markets():
-    return await service.list_markets()
+async def list_markets(event: str | None = None):
+    """One event's markets (?event=<slug>), or every market when no event is given."""
+    return await service.list_markets(event)
 
 
 @router.get("/{market_id}", response_model=MarketDetail)
