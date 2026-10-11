@@ -63,7 +63,7 @@ def _client(_database):
 def db(_database):
     """A direct connection to a freshly wiped and seeded test database, for setup and assertions."""
     with psycopg.connect(TEST_DATABASE_URL, autocommit=True) as conn:
-        conn.execute("TRUNCATE bets, reports, price_ticks, positions, users, markets, teams RESTART IDENTITY CASCADE")
+        conn.execute("TRUNCATE bets, reports, price_ticks, positions, users, markets, teams, events RESTART IDENTITY CASCADE")
         # Truncating the ticks does not empty the continuous aggregate; refreshing it does.
         conn.execute("CALL refresh_continuous_aggregate('price_ticks_1m', NULL, NULL)")
         for m in sample_data.MARKETS:

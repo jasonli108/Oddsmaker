@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app import db
 from app.config import get_settings
-from app.routers import bets, markets, teams, users
+from app.routers import bets, events, markets, teams, users
 from app.schemas import Health
 from app.scout import scheduler
 
@@ -37,6 +37,7 @@ api.include_router(markets.router)
 api.include_router(bets.router)
 api.include_router(teams.router)
 api.include_router(users.router)
+api.include_router(events.router)
 
 
 @api.get("/health", response_model=Health, tags=["misc"])

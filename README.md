@@ -26,6 +26,7 @@ backend/            FastAPI
   app/routers/        thin HTTP layer, no logic
   app/market/         prices, bets, resolution, teams, users   -> stream A
   app/scout/          Nimble, GitHub, Gemini, the 30-minute timer -> stream C
+  app/events/         the host flow: the event row and the host page's numbers
   app/sample_data.py  what the mock endpoints return; delete when nothing imports it
   scripts/            init_db, seed, export_openapi
   tests/
@@ -72,6 +73,9 @@ All routes are under `/api`. Shapes are defined in `backend/app/schemas.py`.
 | `GET /teams/:id/report` | Scout summary, Scout reports tab | Latest report plus the history of Scout's odds |
 | `POST /users`, `GET /users/:id` | Header | Display name in, user with a 1,000 Hackcoin balance out |
 | `GET /leaderboard` | Leaderboard tab | Users ranked by balance |
+| `POST /events/extract` | Host setup | Reads the host's event page into a draft to check. Sample data, marked as such, until Scout can read event pages |
+| `GET /event`, `PUT /event` | Header, host setup | The one event this deployment runs. Saving needs `X-Host-Password` and never creates markets |
+| `GET /host/summary` | Host page | Attendees, teams, bets, Hackcoin traded, a row per market, top five forecasters. Needs `X-Host-Password` |
 | `GET /health` | | Reports whether the database is connected |
 
 **Conventions**

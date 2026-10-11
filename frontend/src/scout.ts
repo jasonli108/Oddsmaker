@@ -1,13 +1,15 @@
 /**
- * How Scout's free-text labels and source kinds are shown.
+ * How Scout's labels and source kinds are shown.
  *
- * TODO(frontend): these lists are a guess at what Gemini will return. Agree a fixed vocabulary
- * with stream C (or add a tone field to the report) so a new label can't land on the wrong colour.
- * Anything not listed here renders in the neutral colour.
+ * The labels are the ones Scout's prompt asks Gemini for (REPORT_PROMPT in
+ * backend/app/scout/gemini.py). Keep the two in step: a label not listed here renders in the
+ * neutral colour, which is also where the middling ones ("Some overlap", "Fair") belong.
  */
 
-const GOOD = ['on pace', 'ahead', 'live', 'polished', 'working', 'strong', 'good', 'original', 'unique', 'novel'];
-const CAUTION = ['crowded', 'behind', 'stalled', 'slow', 'missing', 'down', 'broken', 'not submitted', 'weak', 'poor'];
+// originality: Fresh | build: On pace | demo: Live | prize fit: Strong
+const GOOD = ['fresh', 'on pace', 'live', 'strong'];
+// originality: Crowded | build: Slowing, Stalled, No repo | demo: Slow, Down, Missing | prize fit: Weak
+const CAUTION = ['crowded', 'slowing', 'stalled', 'no repo', 'slow', 'down', 'missing', 'weak'];
 
 export function labelColor(label: string): string {
   const key = label.trim().toLowerCase();
@@ -16,11 +18,11 @@ export function labelColor(label: string): string {
   return 'var(--text-soft)';
 }
 
+// Scout emits repo, demo and similar today (build_report in backend/app/scout/gemini.py).
 const SOURCE_KINDS: Record<string, string> = {
   repo: 'Repo',
   demo: 'Deployed demo',
   similar: 'Similar project',
-  gallery: 'Past hackathon gallery',
   event: 'Judging criteria',
 };
 
