@@ -240,3 +240,63 @@ def test_refresh_all_skips_teams_reported_on_lately(refresh_all):
 def test_a_restart_right_after_a_refresh_spends_nothing(refresh_all):
     state = refresh_all({"orbit", "ledger"})
     assert state.refreshed == [] and state.briefs == 0 and state.repriced == 0
+
+
+# ---- The host's Run Scout button ---------------------------------------------------------
+
+
+@pytest.fixture
+def run_scout(monkeypatch):
+    """Run pipeline.scout_team with Scout on, and a refresh that fails with `state.problem`."""
+    state = SimpleNamespace(problem=None, repriced=0)
+
+    async def get_team(team_id):
+        return TEAM if team_id == "orbit" else None
+
+    async def prepare_event():
+        return "brief"
+
+    async def refresh_team(team, brief):
+        return state.problem
+
+    async def reprice_markets():
+        state.repriced += 1
+
+    async def get_team_report(team_id):
+        return "the new report"
+
+    monkeypatch.setattr(pipeline, "get_settings", lambda: SimpleNamespace(scout_enabled=True))
+    monkeypatch.setattr(pipeline.market_service, "get_team", get_team)
+    monkeypatch.setattr(pipeline, "prepare_event", prepare_event)
+    monkeypatch.setattr(pipeline, "refresh_team", refresh_team)
+    monkeypatch.setattr(pipeline, "reprice_markets", reprice_markets)
+    monkeypatch.setattr(pipeline, "get_team_report", get_team_report)
+    return state
+
+
+def test_run_scout_writes_one_report_and_reprices(run_scout):
+    assert asyncio.run(pipeline.scout_team("orbit")) == "the new report"
+    assert run_scout.repriced == 1
+
+
+def test_run_scout_on_an_unknown_team_is_none(run_scout):
+    assert asyncio.run(pipeline.scout_team("nobody")) is None
+
+
+def test_run_scout_tells_the_host_why_it_failed(run_scout):
+    run_scout.problem = "Gemini's daily quota is used up."
+    with pytest.raises(pipeline.ScoutError, match="quota is used up"):
+        asyncio.run(pipeline.scout_team("orbit"))
+    assert run_scout.repriced == 0
+
+
+def test_run_scout_is_refused_while_scout_is_off():
+    with pytest.raises(pipeline.ScoutError, match="switched off"):  # SCOUT_ENABLED is false in tests
+        asyncio.run(pipeline.scout_team("orbit"))
+
+
+def test_a_used_up_gemini_quota_reads_plainly(scout):
+    scout.previous, scout.fail = PREVIOUS, {"gemini"}
+    error = gemini.GeminiError("gemini-3.5-flash: 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, ...}}")
+    assert "daily quota is used up" in pipeline._reason(error)
+    assert pipeline._reason(nimble.NimbleError("/search: HTTP 500")) == "/search: HTTP 500"

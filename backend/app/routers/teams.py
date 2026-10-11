@@ -1,5 +1,6 @@
-from fastapi import APIRouter, BackgroundTasks, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 
+from app.auth import require_host
 from app.market import service
 from app.schemas import Team, TeamCreate, TeamReport
 from app.scout import pipeline
@@ -26,6 +27,18 @@ async def create_team(body: TeamCreate, background: BackgroundTasks):
 @router.get("/{team_id}/report", response_model=TeamReport)
 async def get_team_report(team_id: str):
     report = await pipeline.get_team_report(team_id)
+    if report is None:
+        raise HTTPException(404, "Team not found")
+    return report
+
+
+@router.post("/{team_id}/scout", response_model=TeamReport, dependencies=[Depends(require_host)])
+async def run_scout(team_id: str):
+    # Host only: each run spends Gemini quota and Nimble credits. Takes up to a minute.
+    try:
+        report = await pipeline.scout_team(team_id)
+    except pipeline.ScoutError as e:
+        raise HTTPException(503, str(e))
     if report is None:
         raise HTTPException(404, "Team not found")
     return report

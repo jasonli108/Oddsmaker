@@ -44,6 +44,10 @@ _brief: str | None = None
 _brief_lock = asyncio.Lock()
 
 
+class ScoutError(Exception):
+    """Scout is switched off, or couldn't finish a run the host asked for. The router sends 503."""
+
+
 # ---- The host's event page ---------------------------------------------------
 
 
@@ -164,6 +168,16 @@ def similar_projects(team: Team, results: list[nimble.SearchResult]) -> list[nim
     return kept[:SIMILAR_LIMIT]
 
 
+def _reason(error: Exception) -> str:
+    """Why a run failed, in words a host can act on. Gemini's errors carry a page of JSON."""
+    text = str(error)
+    if isinstance(error, gemini.GeminiError) and "429" in text:
+        return "Gemini's daily quota is used up. Turn on billing for the Gemini key, or wait for it to reset."
+    if isinstance(error, gemini.GeminiError) and "503" in text:
+        return "Gemini is overloaded right now. Try again in a minute."
+    return _short(error)
+
+
 def _short(error: Exception) -> str:
     """An error's first line, cut short: Gemini's 429s carry a page of JSON."""
     return str(error).splitlines()[0][:200]
@@ -180,12 +194,12 @@ def _similar_from(report: ScoutReport) -> list[nimble.SearchResult]:
 # ---- Every 30 minutes per team -----------------------------------------------
 
 
-async def refresh_team(team: Team, brief: str = "") -> None:
+async def refresh_team(team: Team, brief: str = "") -> str | None:
     """Steps 4 to 6 for one team: gather the evidence, write a report and save it.
 
     If a fetch or Gemini fails and the team has a report, that report is saved again with
     stale = true. Before its first report, a failed repo or demo check is reported to Gemini as
-    our failure instead of blocking the report.
+    our failure instead of blocking the report. Returns None, or why the run failed.
     """
     previous = await _latest_report(team.id)
     try:
@@ -197,9 +211,10 @@ async def refresh_team(team: Team, brief: str = "") -> None:
             log.exception("Scout could not refresh %s", team.id)
         if previous:
             await _save_report(previous, stale=True)
-        return
+        return _reason(e)
     await _save_report(report, stale=False)
     log.info("New report for %s: %s", team.id, report.scores.model_dump())
+    return None
 
 
 async def _write_report(team: Team, previous: ScoutReport | None, brief: str) -> ScoutReport:
@@ -294,6 +309,24 @@ async def run_for_team(team: Team) -> None:
         return
     await refresh_team(team, await prepare_event())
     await reprice_markets()
+
+
+async def scout_team(team_id: str) -> TeamReport | None:
+    """The host's Run Scout button (POST /api/teams/:id/scout): one report for one team now.
+
+    One Gemini call (two if the brief isn't built yet), then a reprice. None for an unknown team;
+    raises ScoutError if Scout is off or the run fails, with the reason for the host.
+    """
+    if not get_settings().scout_enabled:
+        raise ScoutError("Scout is switched off on this server (SCOUT_ENABLED=false).")
+    team = await market_service.get_team(team_id)
+    if team is None:
+        return None
+    problem = await refresh_team(team, await prepare_event())
+    if problem:
+        raise ScoutError(f"Scout couldn't finish: {problem}")
+    await reprice_markets()
+    return await get_team_report(team_id)
 
 
 async def refresh_all() -> None:

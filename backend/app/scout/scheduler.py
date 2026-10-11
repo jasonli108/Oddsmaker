@@ -1,4 +1,8 @@
-"""The 30-minute Scout timer. Started from app.main when SCOUT_ENABLED=true."""
+"""The 30-minute Scout timer. Started from app.main when SCOUT_ENABLED=true.
+
+SCOUT_INTERVAL_MINUTES=0 turns the timer off, to save Gemini quota: Scout then runs only when a
+team signs up and when the host presses Run Scout on a team's report.
+"""
 
 import asyncio
 import logging
@@ -19,5 +23,8 @@ async def _run_forever() -> None:
         await asyncio.sleep(interval)
 
 
-def start() -> asyncio.Task:
+def start() -> asyncio.Task | None:
+    if get_settings().scout_interval_minutes <= 0:
+        log.info("SCOUT_INTERVAL_MINUTES is 0, so no timed refresh: Scout runs at sign-up and from Run Scout")
+        return None
     return asyncio.create_task(_run_forever(), name="scout-scheduler")
