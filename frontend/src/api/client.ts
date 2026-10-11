@@ -17,23 +17,44 @@ const BASE = `${import.meta.env.VITE_API_BASE_URL ?? ''}/api`;
 
 export class ApiError extends Error {
   constructor(
+    /** HTTP status, or 0 when the server could not be reached at all. */
     public status: number,
     message: string,
+    /** Per-field messages from a validation error, keyed by the request field name. */
+    public fields: Record<string, string> = {},
   ) {
     super(message);
   }
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(BASE + path, {
-    ...init,
-    headers: { 'Content-Type': 'application/json', ...init?.headers },
-  });
+  let res: Response;
+  try {
+    res = await fetch(BASE + path, {
+      ...init,
+      headers: { 'Content-Type': 'application/json', ...init?.headers },
+    });
+  } catch {
+    throw new ApiError(0, "Can't reach the server. Check your connection and try again.");
+  }
   if (!res.ok) {
     // FastAPI puts a string in `detail` for our own errors and a list for validation errors.
     const body = await res.json().catch(() => null);
     const detail = body?.detail;
-    throw new ApiError(res.status, typeof detail === 'string' ? detail : res.statusText || 'Request failed');
+    if (Array.isArray(detail)) {
+      const fields: Record<string, string> = {};
+      for (const issue of detail) {
+        const field = String(issue?.loc?.[issue.loc.length - 1] ?? '');
+        if (field && !(field in fields)) fields[field] = String(issue?.msg ?? 'Not a valid value');
+      }
+      throw new ApiError(res.status, 'Some of what you entered needs fixing.', fields);
+    }
+    if (typeof detail === 'string') throw new ApiError(res.status, detail);
+    // A 5xx with no message of ours is the dev proxy or a gateway saying the API is down.
+    throw new ApiError(
+      res.status,
+      res.status >= 500 ? "The server isn't responding. Try again in a moment." : res.statusText || 'Request failed',
+    );
   }
   return res.json() as Promise<T>;
 }

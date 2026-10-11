@@ -168,9 +168,11 @@ def team_report(team_id: str) -> TeamReport:
         change_note="Demo went live since last report.",
         sources=[ReportSource(url=u, kind=k) for u, k in ((team.repo_url, "repo"), (team.demo_url, "demo")) if u],
     )
+    notes = ["Opening odds, idea only", "First commits to the main flow", "Second similar project found",
+             report.change_note]
     odds_history = [
         OddsPoint(time=now - timedelta(minutes=30 * (3 - step)), market_id=market_id,
-                  odds=round((odds[i] - (3 - step)) / 100, 4))
+                  odds=round((odds[i] - (3 - step)) / 100, 4), note=notes[step])
         for market_id, odds in _SCOUT_ODDS.items()
         for step in range(4)
     ]

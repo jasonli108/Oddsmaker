@@ -4,12 +4,15 @@
   --card: #171b1f;
   --border: #262c32;
   --border-strong: #343b43;
+  --border-bold: #4a535c;
   --text: #eceff1;
+  --text-soft: #c9d1d8;
   --text-dim: #a9b4bd;
   --accent: #3ddc97;
   --on-accent: #08210f;
   --amber: #ffc876;
   --amber-border: #5a4520;
+  --good: #7fe3b4;
   --danger: #f29bb7;
 
   --font-sans: 'IBM Plex Sans', system-ui, sans-serif;
@@ -33,7 +36,8 @@ body {
 }
 
 h1,
-h2 {
+h2,
+h3 {
   margin: 0;
   font-weight: 600;
 }
@@ -44,6 +48,9 @@ h1 {
 }
 h2 {
   font-size: 16px;
+}
+h3 {
+  font-size: 15px;
 }
 
 a {
@@ -72,6 +79,9 @@ button:disabled {
 }
 .dim {
   color: var(--text-dim);
+}
+.soft {
+  color: var(--text-soft);
 }
 .small {
   font-size: 13px;
@@ -163,6 +173,31 @@ button:disabled {
   padding: 3px 10px;
 }
 
+.badge-accent {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  padding: 3px 10px;
+}
+
+.avatar {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--border);
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  font-weight: 600;
+  flex: none;
+}
+.avatar.scout {
+  background: var(--amber-border);
+  color: var(--amber);
+}
+
 .tabs {
   display: flex;
   gap: 28px;
@@ -195,6 +230,18 @@ button:disabled {
 .two-col > .side {
   flex: 1 1 340px;
   min-width: 0;
+}
+
+/* Four cards as a 2x2 block; one column on a phone. */
+.quad {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+@media (max-width: 640px) {
+  .quad {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .trades {

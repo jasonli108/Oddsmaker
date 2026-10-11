@@ -1,13 +1,20 @@
 import type { FeedItem } from '../api/types';
 import { ago, coin, pct } from '../format';
 
-export default function TradeFeed({ feed }: { feed: FeedItem[] | null }) {
+type Props = {
+  feed: FeedItem[] | null;
+  error: Error | null;
+};
+
+export default function TradeFeed({ feed, error }: Props) {
   return (
     <div className="card">
       <div className="row between" style={{ marginBottom: 10 }}>
         <h2>Latest trades</h2>
-        <div className="dim" style={{ fontSize: 12 }}>Live</div>
+        <div className="dim" style={{ fontSize: 12 }}>{error ? 'Reconnecting…' : 'Live'}</div>
       </div>
+      {!feed && !error && <div className="dim small">Loading trades…</div>}
+      {!feed && error && <div className="error">Could not load trades: {error.message}</div>}
       {feed && feed.length === 0 && <div className="dim small">No trades yet. Be the first.</div>}
       <div className="trades" tabIndex={0} role="group" aria-label="Latest trades, scroll sideways for older ones">
         {feed?.map((item) => <TradeCard key={item.id} item={item} />)}
@@ -23,13 +30,27 @@ function TradeCard({ item }: { item: FeedItem }) {
   return (
     <div className={`trade stack ${isScout ? 'scout' : ''}`} style={{ gap: 10 }}>
       <div className="row between" style={{ flexWrap: 'nowrap', gap: 8 }}>
-        <span style={{ fontWeight: 500, fontSize: 14, color: isScout ? 'var(--amber)' : undefined }}>{who}</span>
-        <span className="mono dim" style={{ fontSize: 12 }}>{ago(item.time)}</span>
+        <div className="row" style={{ flexWrap: 'nowrap', gap: 8, minWidth: 0 }}>
+          <span aria-hidden className={`avatar ${isScout ? 'scout' : ''}`}>{who.charAt(0).toUpperCase() || '?'}</span>
+          <span
+            style={{
+              fontWeight: 500,
+              fontSize: 14,
+              color: isScout ? 'var(--amber)' : undefined,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {who}
+          </span>
+        </div>
+        <span className="mono dim" style={{ fontSize: 12, flex: 'none' }}>{ago(item.time)}</span>
       </div>
       <div className="mono" style={{ fontSize: 22, fontWeight: 500, lineHeight: 1.1 }}>
         {isScout ? `${pct(item.price_from)} to ${pct(item.price_to)}` : `${coin(item.stake)} Hackcoin`}
       </div>
-      <div className="row small" style={{ gap: 7, flexWrap: 'nowrap' }}>
+      <div className="row small soft" style={{ gap: 7, flexWrap: 'nowrap', alignItems: 'baseline' }}>
         <span className="dot" aria-hidden style={{ width: 8, height: 8, background: item.team_color }} />
         {isScout ? `${item.team_name}, ${item.note}` : `on ${item.team_name} at ${pct(item.price)}`}
       </div>

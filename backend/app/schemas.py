@@ -211,6 +211,7 @@ class OddsPoint(BaseModel):
     time: datetime
     market_id: str
     odds: float
+    note: str | None = None  # that run's change_note, shown beside the odds on the Scout reports tab
 
 
 class TeamReport(BaseModel):
