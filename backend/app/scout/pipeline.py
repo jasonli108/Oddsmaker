@@ -32,6 +32,9 @@ DRAFT_FIELDS = ("name", "hosted_by", "location", "starts_at", "submissions_close
 MARKET_IDS = list(ScoutScores.model_fields)
 # A team without a report yet is priced as if Scout had scored it this in every category.
 NEUTRAL_SCORE = 50
+# Failures Scout expects (quota, rate limits, a site or API that is down). They are logged as one
+# line; anything else gets a full traceback.
+EXPECTED_ERRORS = (nimble.NimbleError, github.GitHubError, gemini.GeminiError)
 # Teams refreshed at once, to go easy on Gemini (which answers 503 when busy) and Nimble.
 PARALLEL_TEAMS = 3
 SIMILAR_LIMIT = 6
@@ -118,14 +121,14 @@ async def _build_brief() -> str | None:
     if url:
         try:
             page = await nimble.extract(url, screenshot=False, render=False)
-        except Exception:
-            log.warning("Could not read the event page %s for the brief", url, exc_info=True)
+        except nimble.NimbleError as e:
+            log.warning("Could not read the event page %s for the brief: %s", url, _short(e))
     query = f"winning projects at {event.name}" if event else "winning AI hackathon projects"
     try:
         winners = await nimble.search(query, limit=5, domains=GALLERY_DOMAINS)
         brief = await gemini.condense_winners_brief(winners, page if page and page.text.strip() else None)
-    except Exception:
-        log.warning("Could not build the what-wins-here brief; reports go ahead without it", exc_info=True)
+    except Exception as e:
+        log.warning("Could not build the what-wins-here brief; reports go ahead without it: %s", _short(e))
         return None
     log.info("Built the what-wins-here brief from %d past projects", len(winners))
     return brief
@@ -161,6 +164,11 @@ def similar_projects(team: Team, results: list[nimble.SearchResult]) -> list[nim
     return kept[:SIMILAR_LIMIT]
 
 
+def _short(error: Exception) -> str:
+    """An error's first line, cut short: Gemini's 429s carry a page of JSON."""
+    return str(error).splitlines()[0][:200]
+
+
 def _url_key(url: str) -> str:
     return url.strip().rstrip("/").lower().removeprefix("https://").removeprefix("http://").removeprefix("www.")
 
@@ -182,8 +190,11 @@ async def refresh_team(team: Team, brief: str = "") -> None:
     previous = await _latest_report(team.id)
     try:
         report = await _write_report(team, previous, brief)
-    except Exception:
-        log.exception("Scout could not refresh %s", team.id)
+    except Exception as e:
+        if isinstance(e, EXPECTED_ERRORS):
+            log.warning("Scout could not refresh %s: %s", team.id, _short(e))
+        else:
+            log.exception("Scout could not refresh %s", team.id)
         if previous:
             await _save_report(previous, stale=True)
         return
@@ -212,7 +223,7 @@ async def _repo_stats(team: Team, *, tolerate: bool) -> github.RepoStats | None:
     except github.GitHubError:
         if not tolerate:
             raise
-        log.warning("GitHub stats failed for %s; its first report goes ahead without them", team.id, exc_info=True)
+        log.warning("GitHub stats failed for %s; its first report goes ahead without them", team.id)
         return None
 
 
@@ -225,7 +236,7 @@ async def _demo(team: Team, *, tolerate: bool) -> nimble.PageExtract | None:
     except nimble.NimbleError:
         if not tolerate:
             raise
-        log.warning("Demo check failed for %s; its first report goes ahead without it", team.id, exc_info=True)
+        log.warning("Demo check failed for %s; its first report goes ahead without it", team.id)
         return None
 
 

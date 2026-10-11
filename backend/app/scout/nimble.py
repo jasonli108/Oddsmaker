@@ -29,8 +29,15 @@ TIMEOUT_SECONDS = 60
 DESCRIPTION_CHARS = 200
 
 
+# Nimble's error messages that mean the site is down, not that Nimble failed. Seen live:
+# "nx_domain_error" (HTTP 400) for a demo link whose domain doesn't exist.
+SITE_DOWN_REASONS = {"nx_domain_error"}
+
+
 class NimbleError(Exception):
-    pass
+    def __init__(self, message: str, reason: str | None = None):
+        super().__init__(message)
+        self.reason = reason  # Nimble's own error message, e.g. "nx_domain_error"
 
 
 @dataclass
@@ -76,7 +83,12 @@ async def extract(url: str, *, screenshot: bool = True, render: bool = True) -> 
 async def _extract(url: str, *, render: bool, screenshot: bool) -> PageExtract:
     # A screenshot needs the browser, so it is only asked for when rendering.
     formats = ["markdown", "screenshot"] if screenshot and render else ["markdown"]
-    body = await _post("/extract", {"url": url, "render": render, "formats": formats})
+    try:
+        body = await _post("/extract", {"url": url, "render": render, "formats": formats})
+    except NimbleError as e:
+        if e.reason in SITE_DOWN_REASONS:
+            return PageExtract(url=url, is_up=False, load_ms=None, text="")
+        raise
     if body.get("status") != "success":
         raise NimbleError(f"extract {url}: status {body.get('status')!r}")
     return parse_extract(url, body)
@@ -123,5 +135,9 @@ async def _post(path: str, payload: dict) -> dict:
         raise NimbleError(f"{path}: {e!r}") from e
     if response.status_code != 200:
         # Nimble's error body says why (e.g. a 500 with "please try again"); keep it in the message.
-        raise NimbleError(f"{path}: HTTP {response.status_code}: {response.text[:300]}")
+        try:
+            reason = response.json().get("message")
+        except ValueError:
+            reason = None
+        raise NimbleError(f"{path}: HTTP {response.status_code}: {response.text[:300]}", reason)
     return response.json()
