@@ -57,10 +57,26 @@ async def search(query: str, limit: int = 5, *, domains: list[str] | None = None
     return parse_search(await _post("/search", payload))
 
 
-async def extract(url: str, *, screenshot: bool = True) -> PageExtract:
-    """Load a page in a headless browser and return its text, status and a screenshot."""
-    formats = ["markdown", "screenshot"] if screenshot else ["markdown"]
-    body = await _post("/extract", {"url": url, "render": True, "formats": formats})
+async def extract(url: str, *, screenshot: bool = True, render: bool = True) -> PageExtract:
+    """Load a page and return its text, status and (in a browser) a screenshot.
+
+    render=True loads it in a headless browser, which single-page demo apps need. render=False is
+    a plain HTTP fetch: faster, and enough for pages that send their content in the HTML, like
+    Luma, Devpost and MLH. If a live page comes back with no text, it is fetched once more the
+    other way: Luma's event pages come back empty in the browser but complete over HTTP.
+    """
+    page = await _extract(url, render=render, screenshot=screenshot)
+    if page.is_up and not page.text.strip():
+        retry = await _extract(url, render=not render, screenshot=screenshot and not render)
+        if retry.text.strip():
+            return retry
+    return page
+
+
+async def _extract(url: str, *, render: bool, screenshot: bool) -> PageExtract:
+    # A screenshot needs the browser, so it is only asked for when rendering.
+    formats = ["markdown", "screenshot"] if screenshot and render else ["markdown"]
+    body = await _post("/extract", {"url": url, "render": render, "formats": formats})
     if body.get("status") != "success":
         raise NimbleError(f"extract {url}: status {body.get('status')!r}")
     return parse_extract(url, body)

@@ -8,12 +8,60 @@ team's last report and save it with stale = true.
 """
 
 import logging
+from datetime import datetime
 
 from app import sample_data
 from app.market import service as market_service
-from app.schemas import Team, TeamReport
+from app.schemas import EventCategory, EventDraft, Team, TeamReport
+from app.scout import gemini, nimble
 
 log = logging.getLogger(__name__)
+
+# EventDraft fields the host has to fill in by hand when the page doesn't give them.
+DRAFT_FIELDS = ("name", "hosted_by", "location", "starts_at", "submissions_close_at", "categories")
+
+
+async def extract_event(url: str) -> EventDraft:
+    """Read the host's event page into a draft for them to check (POST /api/events/extract).
+
+    One Nimble extract and one Gemini call. Raises if the page is down or either call fails;
+    app.events.service then shows the host an empty draft rather than sample data.
+    """
+    page = await nimble.extract(url, screenshot=False, render=False)
+    if not page.is_up or not page.text.strip():
+        raise nimble.NimbleError(f"event page did not load or had no text: {url}")
+    log.info("Read event page %s: %d characters", url, len(page.text))
+    return event_draft(url, await gemini.read_event_page(page))
+
+
+def event_draft(url: str, event: gemini.GeminiEvent) -> EventDraft:
+    # Imported here, not at the top, because app.events.service imports this module.
+    from app.events.service import market_id_for
+
+    draft = EventDraft(
+        name=event.name.strip(),
+        hosted_by=event.hosted_by.strip() or None,
+        location=event.location.strip() or None,
+        starts_at=_parse_time(event.starts_at),
+        submissions_close_at=_parse_time(event.submissions_close_at),
+        source_url=url,
+        categories=[
+            EventCategory(name=c.name.strip(), prize=c.prize.strip() or None, market_id=market_id_for(c.name))
+            for c in event.categories
+            if c.name.strip()
+        ],
+    )
+    draft.missing = [field for field in DRAFT_FIELDS if not getattr(draft, field)]
+    return draft
+
+
+def _parse_time(value: str) -> datetime | None:
+    """An ISO 8601 time with a UTC offset. A time without one counts as missing: saving it would assume UTC."""
+    try:
+        parsed = datetime.fromisoformat(value.strip())
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else None
 
 
 async def prepare_event() -> None:

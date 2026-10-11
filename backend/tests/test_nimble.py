@@ -1,5 +1,6 @@
 """Parsing of Nimble responses. Bodies are trimmed copies of real responses, so no credits are spent."""
 
+import asyncio
 import base64
 
 from app.scout import nimble
@@ -40,6 +41,20 @@ def test_extract_live_page_with_screenshot():
     assert page.load_ms == 1537
     assert page.text == "Example Domain"
     assert page.screenshot_png == PNG
+
+
+def test_extract_retries_the_other_way_when_a_live_page_has_no_text(monkeypatch):
+    calls = []
+
+    async def fake_extract(url, *, render, screenshot):
+        calls.append((render, screenshot))
+        text = "" if render else "# AI Engineer New York Hackathon"
+        return nimble.PageExtract(url=url, is_up=True, load_ms=100, text=text)
+
+    monkeypatch.setattr(nimble, "_extract", fake_extract)
+    page = asyncio.run(nimble.extract("https://luma.com/x"))
+    assert page.text == "# AI Engineer New York Hackathon"
+    assert calls == [(True, True), (False, False)]  # no screenshot without the browser
 
 
 def test_extract_dead_deploy_is_down_not_an_error():
