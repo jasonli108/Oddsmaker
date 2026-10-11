@@ -191,3 +191,130 @@ def test_a_first_run_without_search_or_gemini_saves_nothing(scout, failing):
 def test_nothing_runs_while_scout_is_off(scout):
     asyncio.run(pipeline.run_for_team(TEAM))  # SCOUT_ENABLED is false in tests
     assert scout.saved == [] and scout.searches == 0
+
+
+# ---- The 30-minute refresh -------------------------------------------------------------
+
+
+@pytest.fixture
+def refresh_all(monkeypatch):
+    """Run pipeline.refresh_all with two teams, where `recent` lists the ones reported on lately."""
+    state = SimpleNamespace(recent=set(), refreshed=[], briefs=0, repriced=0)
+    teams = [TEAM, TEAM.model_copy(update={"id": "ledger", "name": "Ledgerline"})]
+
+    async def list_teams():
+        return teams
+
+    async def recently_reported(minutes):
+        return state.recent
+
+    async def prepare_event(event_slug=None):
+        state.briefs += 1
+        return "brief"
+
+    async def refresh_team(team, brief):
+        state.refreshed.append(team.id)
+
+    async def reprice_markets(event_slug=None):
+        state.repriced += 1
+
+    monkeypatch.setattr(pipeline.market_service, "list_teams", list_teams)
+    monkeypatch.setattr(pipeline, "_recently_reported", recently_reported)
+    monkeypatch.setattr(pipeline, "prepare_event", prepare_event)
+    monkeypatch.setattr(pipeline, "refresh_team", refresh_team)
+    monkeypatch.setattr(pipeline, "reprice_markets", reprice_markets)
+
+    def run(recent):
+        state.recent = recent
+        asyncio.run(pipeline.refresh_all())
+        return state
+
+    return run
+
+
+def test_refresh_all_skips_teams_reported_on_lately(refresh_all):
+    state = refresh_all({"orbit"})
+    assert state.refreshed == ["ledger"] and state.repriced == 1
+
+
+def test_a_restart_right_after_a_refresh_spends_nothing(refresh_all):
+    state = refresh_all({"orbit", "ledger"})
+    assert state.refreshed == [] and state.briefs == 0 and state.repriced == 0
+
+
+# ---- The host's Run Scout button ---------------------------------------------------------
+
+
+@pytest.fixture
+def run_scout(monkeypatch):
+    """Run pipeline.scout_team with Scout on, and a refresh that fails with `state.problem`."""
+    state = SimpleNamespace(problem=None, repriced=0, events=[])
+
+    async def get_team(team_id):
+        return TEAM.model_copy(update={"event_slug": "ai-engineer-nyc"}) if team_id == "orbit" else None
+
+    async def prepare_event(event_slug=None):
+        state.events.append(("brief", event_slug))
+        return "brief"
+
+    async def refresh_team(team, brief):
+        return state.problem
+
+    async def reprice_markets(event_slug=None):
+        state.repriced += 1
+        state.events.append(("reprice", event_slug))
+
+    async def get_team_report(team_id):
+        return "the new report"
+
+    monkeypatch.setattr(pipeline, "get_settings", lambda: SimpleNamespace(scout_enabled=True))
+    monkeypatch.setattr(pipeline, "_last_run", {})
+    monkeypatch.setattr(pipeline.market_service, "get_team", get_team)
+    monkeypatch.setattr(pipeline, "prepare_event", prepare_event)
+    monkeypatch.setattr(pipeline, "refresh_team", refresh_team)
+    monkeypatch.setattr(pipeline, "reprice_markets", reprice_markets)
+    monkeypatch.setattr(pipeline, "get_team_report", get_team_report)
+    return state
+
+
+def test_run_scout_writes_one_report_and_reprices(run_scout):
+    assert asyncio.run(pipeline.scout_team("orbit")) == "the new report"
+    # The team's own event: its brief, and only its markets are repriced.
+    assert run_scout.events == [("brief", "ai-engineer-nyc"), ("reprice", "ai-engineer-nyc")]
+
+
+def test_run_scout_on_an_unknown_team_is_none(run_scout):
+    assert asyncio.run(pipeline.scout_team("nobody")) is None
+
+
+def test_run_scout_tells_the_host_why_it_failed(run_scout):
+    run_scout.problem = "Gemini's daily quota is used up."
+    with pytest.raises(pipeline.ScoutError, match="quota is used up"):
+        asyncio.run(pipeline.scout_team("orbit"))
+    assert run_scout.repriced == 0
+
+
+def test_run_scout_waits_out_the_cooldown_for_each_team(run_scout):
+    asyncio.run(pipeline.scout_team("orbit"))
+    with pytest.raises(pipeline.ScoutBusy, match="Try again in 10 minutes"):
+        asyncio.run(pipeline.scout_team("orbit"))
+    assert run_scout.repriced == 1
+    # A failed run counts too, or repeated clicks on a failing team would spend credits each time.
+    pipeline._last_run["orbit"] -= pipeline.RUN_SCOUT_COOLDOWN_MINUTES * 60
+    run_scout.problem = "Gemini is overloaded right now."
+    with pytest.raises(pipeline.ScoutError):
+        asyncio.run(pipeline.scout_team("orbit"))
+    with pytest.raises(pipeline.ScoutBusy):
+        asyncio.run(pipeline.scout_team("orbit"))
+
+
+def test_run_scout_is_refused_while_scout_is_off():
+    with pytest.raises(pipeline.ScoutError, match="switched off"):  # SCOUT_ENABLED is false in tests
+        asyncio.run(pipeline.scout_team("orbit"))
+
+
+def test_a_used_up_gemini_quota_reads_plainly(scout):
+    scout.previous, scout.fail = PREVIOUS, {"gemini"}
+    error = gemini.GeminiError("gemini-3.5-flash: 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, ...}}")
+    assert "daily quota is used up" in pipeline._reason(error)
+    assert pipeline._reason(nimble.NimbleError("/search: HTTP 500")) == "/search: HTTP 500"

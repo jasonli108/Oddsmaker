@@ -3,6 +3,8 @@
 import asyncio
 import base64
 
+import pytest
+
 from app.scout import nimble
 
 PNG = b"\x89PNG\r\n\x1a\nfake"
@@ -68,3 +70,21 @@ def test_extract_dead_deploy_is_down_not_an_error():
     page = nimble.parse_extract("https://gone.vercel.app", body)
     assert not page.is_up
     assert page.screenshot_png is None
+
+
+def test_a_domain_that_does_not_exist_is_a_demo_that_is_down(monkeypatch):
+    async def post(path, payload):
+        raise nimble.NimbleError("/extract: HTTP 400", reason="nx_domain_error")
+
+    monkeypatch.setattr(nimble, "_post", post)
+    page = asyncio.run(nimble.extract("https://kiln.example.com"))
+    assert not page.is_up and page.text == ""
+
+
+def test_other_nimble_failures_still_raise(monkeypatch):
+    async def post(path, payload):
+        raise nimble.NimbleError("/extract: HTTP 500", reason="can't download the query response - please try again")
+
+    monkeypatch.setattr(nimble, "_post", post)
+    with pytest.raises(nimble.NimbleError):
+        asyncio.run(nimble.extract("https://httpbin.org/status/404"))

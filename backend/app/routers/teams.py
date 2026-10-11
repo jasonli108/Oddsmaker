@@ -29,3 +29,17 @@ async def get_team_report(team_id: str):
     if report is None:
         raise HTTPException(404, "Team not found")
     return report
+
+
+@router.post("/{team_id}/scout", response_model=TeamReport)
+async def run_scout(team_id: str):
+    # Open to anyone, so each team has a cooldown (pipeline.RUN_SCOUT_COOLDOWN_MINUTES). Takes up to a minute.
+    try:
+        report = await pipeline.scout_team(team_id)
+    except pipeline.ScoutBusy as e:
+        raise HTTPException(429, str(e))
+    except pipeline.ScoutError as e:
+        raise HTTPException(503, str(e))
+    if report is None:
+        raise HTTPException(404, "Team not found")
+    return report
