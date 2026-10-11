@@ -4,6 +4,7 @@ import { ApiError, api } from '../api/client';
 import type { HostMarketRow, ResolveResult } from '../api/types';
 import Stat from '../components/Stat';
 import { coin, pct, plural } from '../format';
+import { useAttendeePath } from '../hooks/useAttendeePath';
 import { usePolling } from '../hooks/usePolling';
 
 /** Kept for this browser tab only, so closing the tab locks the host page again. */
@@ -77,6 +78,7 @@ function PasswordGate({ onUnlock }: { onUnlock: (password: string) => void }) {
 
 function Dashboard({ password, onLock }: { password: string; onLock: () => void }) {
   const summary = usePolling(() => api.getHostSummary(password), password);
+  const path = useAttendeePath();
   const s = summary.data;
 
   // The password was changed on the server while this tab was open.
@@ -96,7 +98,7 @@ function Dashboard({ password, onLock }: { password: string; onLock: () => void 
       <div className="row between">
         <h1>Host page</h1>
         <div className="row">
-          <Link className="btn" to="/" style={{ display: 'grid', placeItems: 'center' }}>
+          <Link className="btn" to={path()} style={{ display: 'grid', placeItems: 'center' }}>
             Open the attendee app
           </Link>
           <button className="btn" onClick={onLock}>Lock</button>

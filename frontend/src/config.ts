@@ -1,3 +1,4 @@
+/** Used until a host saves an event in setup; after that the saved event's details win (see useEvent). */
 export const EVENT_NAME = 'AI Engineer NYC 2026';
 
 /** 11:59 PM EDT on the day of the event. The header counts down to this. */

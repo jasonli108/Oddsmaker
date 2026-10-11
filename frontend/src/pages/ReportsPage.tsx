@@ -4,6 +4,7 @@ import type { MarketTeam, ScoutReport, TeamReport } from '../api/types';
 import Stat from '../components/Stat';
 import { HEADLINE_MARKET_ID, SCOUT_INTERVAL_MS } from '../config';
 import { clock, countdown, pct, plural, points } from '../format';
+import { useAttendeePath } from '../hooks/useAttendeePath';
 import { useNow } from '../hooks/useNow';
 import { usePolling } from '../hooks/usePolling';
 import { labelColor, sourceKindLabel } from '../scout';
@@ -14,6 +15,7 @@ const NOTABLE_GAP_POINTS = 5;
 /** Scout reports tab: one report per team, with sources, against the headline market's price. */
 export default function ReportsPage() {
   const { teamId } = useParams();
+  const path = useAttendeePath();
   const market = usePolling(() => api.getMarket(HEADLINE_MARKET_ID), 'reports-market');
   const teams = market.data?.teams ?? [];
 
@@ -39,7 +41,7 @@ export default function ReportsPage() {
         {market.data && teams.length === 0 && !teamId && (
           <div className="card stack" style={{ alignItems: 'flex-start' }}>
             <div>No teams have signed up yet, so Scout has nothing to report on.</div>
-            <Link className="btn primary" to="/signup" style={{ display: 'grid', placeItems: 'center' }}>
+            <Link className="btn primary" to={path('/signup')} style={{ display: 'grid', placeItems: 'center' }}>
               Sign up a team
             </Link>
           </div>
@@ -84,9 +86,10 @@ function gapText(gap: number): string {
 
 function TeamLink({ team, selected }: { team: MarketTeam; selected: boolean }) {
   const gap = points(team.scout_odds, team.price);
+  const path = useAttendeePath();
   return (
     <NavLink
-      to={`/reports/${team.team_id}`}
+      to={path(`/reports/${team.team_id}`)}
       className={`card row between ${selected ? 'selected' : ''}`}
       style={{ padding: '14px 16px', minHeight: 64, flexWrap: 'nowrap', color: 'var(--text)' }}
     >
@@ -123,6 +126,7 @@ type ReportProps = {
 function Report({ data, marketTeam, marketOpen }: ReportProps) {
   const { team, report } = data;
   const history = data.odds_history.filter((p) => p.market_id === HEADLINE_MARKET_ID);
+  const path = useAttendeePath();
 
   return (
     <div className="stack" style={{ gap: 20 }}>
@@ -139,7 +143,7 @@ function Report({ data, marketTeam, marketOpen }: ReportProps) {
         {marketTeam && marketOpen && (
           <Link
             className="btn primary"
-            to={`/?team=${team.id}`}
+            to={path(`?team=${team.id}`)}
             style={{ display: 'grid', placeItems: 'center', minHeight: 48, padding: '0 22px', fontSize: 15 }}
           >
             Bet on {team.name} at {pct(marketTeam.price)}

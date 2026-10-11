@@ -8,11 +8,13 @@ import ScoutSummary from '../components/ScoutSummary';
 import TeamRow from '../components/TeamRow';
 import TradeFeed from '../components/TradeFeed';
 import { coin, plural } from '../format';
+import { useAttendeePath } from '../hooks/useAttendeePath';
 import { usePolling } from '../hooks/usePolling';
 
 export default function MarketsPage() {
   // /?market=gemini&team=orbit opens that market with that team picked, e.g. from a Scout report.
   const [params] = useSearchParams();
+  const path = useAttendeePath();
   const [marketId, setMarketId] = useState(params.get('market') ?? 'overall');
   const [pickedTeamId, setPickedTeamId] = useState(params.get('team'));
 
@@ -72,7 +74,7 @@ export default function MarketsPage() {
         {m && teams.length === 0 ? (
           <div className="card stack" style={{ alignItems: 'flex-start' }}>
             <div>No teams have signed up yet, so there is nothing to bet on.</div>
-            <Link className="btn primary" to="/signup" style={{ display: 'grid', placeItems: 'center' }}>
+            <Link className="btn primary" to={path('/signup')} style={{ display: 'grid', placeItems: 'center' }}>
               Sign up a team
             </Link>
           </div>
@@ -116,6 +118,7 @@ export default function MarketsPage() {
 
 /** Takes the bet slip's place once the host has picked a winner. */
 function Result({ market, winner }: { market: MarketDetail; winner: MarketTeam | undefined }) {
+  const path = useAttendeePath();
   return (
     <div className="card stack" style={{ padding: 20, borderColor: 'var(--accent)' }}>
       <div>
@@ -128,7 +131,7 @@ function Result({ market, winner }: { market: MarketDetail; winner: MarketTeam |
         Betting is closed. Bets on the winner paid their stake times the multiple locked in when the bet was placed.
         Every other bet paid nothing.
       </div>
-      <Link className="btn" to="/leaderboard" style={{ display: 'grid', placeItems: 'center' }}>
+      <Link className="btn" to={path('/leaderboard')} style={{ display: 'grid', placeItems: 'center' }}>
         See the leaderboard
       </Link>
     </div>
