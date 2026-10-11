@@ -286,7 +286,18 @@ async def run_for_team(team: Team) -> None:
 
 
 async def refresh_all() -> None:
-    """Called by the scheduler: steps 4 to 8 for every team, a few at a time."""
+    """Called by the scheduler: steps 4 to 8 for every team that is due, a few at a time.
+
+    A team with a report from the last SCOUT_INTERVAL_MINUTES is skipped, so restarting the
+    server (or uvicorn --reload on every save) doesn't spend credits on teams Scout just covered.
+    The scheduler waits a full interval after each run, so its own runs never skip anyone.
+    """
+    minutes = get_settings().scout_interval_minutes
+    recent = await _recently_reported(minutes)
+    due = [t for t in await market_service.list_teams() if t.id not in recent]
+    if not due:
+        log.info("Every team has a report from the last %d minutes; nothing to refresh", minutes)
+        return
     brief = await prepare_event()
     limit = asyncio.Semaphore(PARALLEL_TEAMS)
 
@@ -294,12 +305,23 @@ async def refresh_all() -> None:
         async with limit:
             await refresh_team(team, brief)
 
-    teams = await market_service.list_teams()
-    results = await asyncio.gather(*(refresh(t) for t in teams), return_exceptions=True)
-    for team, result in zip(teams, results):
+    results = await asyncio.gather(*(refresh(t) for t in due), return_exceptions=True)
+    for team, result in zip(due, results):
         if isinstance(result, Exception):
             log.error("Scout refresh crashed for %s", team.id, exc_info=result)
     await reprice_markets()
+
+
+async def _recently_reported(minutes: int) -> set[str]:
+    """Teams whose latest report, fresh or stale, is younger than `minutes`, by the database's clock."""
+    async with db.get_pool().connection() as conn:
+        rows = await (
+            await conn.execute(
+                "SELECT team_id FROM reports GROUP BY team_id HAVING max(created_at) > now() - make_interval(mins => %s)",
+                (minutes,),
+            )
+        ).fetchall()
+    return {r["team_id"] for r in rows}
 
 
 # ---- Reading reports ---------------------------------------------------------

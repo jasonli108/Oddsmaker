@@ -191,3 +191,52 @@ def test_a_first_run_without_search_or_gemini_saves_nothing(scout, failing):
 def test_nothing_runs_while_scout_is_off(scout):
     asyncio.run(pipeline.run_for_team(TEAM))  # SCOUT_ENABLED is false in tests
     assert scout.saved == [] and scout.searches == 0
+
+
+# ---- The 30-minute refresh -------------------------------------------------------------
+
+
+@pytest.fixture
+def refresh_all(monkeypatch):
+    """Run pipeline.refresh_all with two teams, where `recent` lists the ones reported on lately."""
+    state = SimpleNamespace(recent=set(), refreshed=[], briefs=0, repriced=0)
+    teams = [TEAM, TEAM.model_copy(update={"id": "ledger", "name": "Ledgerline"})]
+
+    async def list_teams():
+        return teams
+
+    async def recently_reported(minutes):
+        return state.recent
+
+    async def prepare_event():
+        state.briefs += 1
+        return "brief"
+
+    async def refresh_team(team, brief):
+        state.refreshed.append(team.id)
+
+    async def reprice_markets():
+        state.repriced += 1
+
+    monkeypatch.setattr(pipeline.market_service, "list_teams", list_teams)
+    monkeypatch.setattr(pipeline, "_recently_reported", recently_reported)
+    monkeypatch.setattr(pipeline, "prepare_event", prepare_event)
+    monkeypatch.setattr(pipeline, "refresh_team", refresh_team)
+    monkeypatch.setattr(pipeline, "reprice_markets", reprice_markets)
+
+    def run(recent):
+        state.recent = recent
+        asyncio.run(pipeline.refresh_all())
+        return state
+
+    return run
+
+
+def test_refresh_all_skips_teams_reported_on_lately(refresh_all):
+    state = refresh_all({"orbit"})
+    assert state.refreshed == ["ledger"] and state.repriced == 1
+
+
+def test_a_restart_right_after_a_refresh_spends_nothing(refresh_all):
+    state = refresh_all({"orbit", "ledger"})
+    assert state.refreshed == [] and state.briefs == 0 and state.repriced == 0
