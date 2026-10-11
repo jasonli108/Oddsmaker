@@ -58,6 +58,7 @@ function ReviewForm({ draft }: { draft: EventDraft }) {
   const [password, setPassword] = useState(hostPassword.get() ?? '');
   const [busy, setBusy] = useState(false);
   const [nameError, setNameError] = useState<string | null>(null);
+  const [closesError, setClosesError] = useState<string | null>(null);
   const [passwordError, setPasswordError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -82,12 +83,22 @@ function ReviewForm({ draft }: { draft: EventDraft }) {
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     setNameError(null);
+    setClosesError(null);
     setPasswordError(null);
     setStartingError(null);
     setCategoriesError(null);
     setFormError(null);
     if (!name.trim()) {
       setNameError('Your event needs a name.');
+      return;
+    }
+    // Team sign-up and betting stop at this time, and winners are picked after it.
+    if (!closesAt) {
+      setClosesError('Set when submissions close. Team sign-up and betting stop then.');
+      return;
+    }
+    if (new Date(closesAt).getTime() <= Date.now()) {
+      setClosesError('That time has already passed. Nobody could sign up a team or bet.');
       return;
     }
     if (marketCount === 0) {
@@ -129,6 +140,7 @@ function ReviewForm({ draft }: { draft: EventDraft }) {
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) setPasswordError("That's not the host password.");
       else if (err instanceof ApiError && err.fields.name) setNameError(err.fields.name);
+      else if (err instanceof ApiError && err.fields.submissions_close_at) setClosesError(err.fields.submissions_close_at);
       else setFormError(`Couldn't launch. ${(err as Error).message}`);
       setBusy(false);
     }
@@ -179,9 +191,24 @@ function ReviewForm({ draft }: { draft: EventDraft }) {
               <input className="input" type="datetime-local" value={startsAt} onChange={(e) => setStartsAt(e.target.value)} {...look} />
             )}
           </Field>
-          <Field label="Submissions close" notFound={notFound(closesAt)}>
+          <Field
+            label="Submissions close (required)"
+            error={closesError}
+            notFound={notFound(closesAt) && !closesError}
+            hint="Team sign-up and betting stop at this time. You pick winners after it."
+          >
             {(look) => (
-              <input className="input" type="datetime-local" value={closesAt} onChange={(e) => setClosesAt(e.target.value)} {...look} />
+              <input
+                className="input"
+                type="datetime-local"
+                required
+                value={closesAt}
+                onChange={(e) => {
+                  setClosesAt(e.target.value);
+                  setClosesError(null);
+                }}
+                {...look}
+              />
             )}
           </Field>
         </div>
@@ -239,7 +266,7 @@ function ReviewForm({ draft }: { draft: EventDraft }) {
               event, as starting_balance is, and have app/scout/scheduler.py read it instead of
               SCOUT_INTERVAL_MINUTES. Blocked until the pipeline that the timer runs is written. */}
           <Setting label="Scout refreshes its reports" value="Every 30 minutes" />
-          <Setting label="Betting closes" value="When you pick each winner" />
+          <Setting label="Sign-up and betting close" value="When submissions close. You pick winners after that." />
         </div>
         <div className="dim" style={{ fontSize: 14 }}>Hackcoin is play money. It can't be bought, sold or cashed out.</div>
       </Section>
@@ -309,17 +336,20 @@ type FieldProps = {
   error?: string | null;
   /** The page was read and this field wasn't on it: amber, until the host fills it in. */
   notFound?: boolean;
+  /** Shown under the field when there is nothing else to say about it. */
+  hint?: string;
   children: (look: FieldLook) => ReactNode;
 };
 
-function Field({ label, error, notFound, children }: FieldProps) {
+function Field({ label, error, notFound, hint, children }: FieldProps) {
   const look: FieldLook = error ? { 'aria-invalid': true } : notFound ? { style: { borderColor: AMBER } } : {};
   return (
     <label className="stack" style={{ gap: 6 }}>
       <span className="dim small">{label}</span>
       {children(look)}
       {error && <span className="error" role="alert">{error}</span>}
-      {!error && notFound && <span className="small" style={{ color: AMBER }}>We couldn't find this one.</span>}
+      {!error && notFound && <span className="small" style={{ color: AMBER }}>We couldn't find this one.{hint && ` ${hint}`}</span>}
+      {!error && !notFound && hint && <span className="dim small">{hint}</span>}
     </label>
   );
 }

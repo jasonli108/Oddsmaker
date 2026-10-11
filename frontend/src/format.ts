@@ -27,5 +27,9 @@ export const points = (a: number, b: number) => Math.round(a * 100) - Math.round
 
 export const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
+/** "Oct 11, 11:59 PM", in the viewer's own time zone. */
+export const dateTime = (date: Date) =>
+  date.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+
 export const clock =(iso: string) =>
   new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });

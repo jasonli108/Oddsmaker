@@ -9,7 +9,7 @@ import TeamRow from '../components/TeamRow';
 import TradeFeed from '../components/TradeFeed';
 import { coin, plural } from '../format';
 import { useAttendeePath } from '../hooks/useAttendeePath';
-import { useEventSlug } from '../hooks/useEvent';
+import { useEvent, useEventSlug, useSubmissionsClosed } from '../hooks/useEvent';
 import { usePolling } from '../hooks/usePolling';
 
 export default function MarketsPage() {
@@ -32,6 +32,10 @@ export default function MarketsPage() {
   const teams = m?.teams ?? [];
   const picked = teams.find((t) => t.team_id === pickedTeamId) ?? teams[0];
   const closed = m?.status === 'resolved';
+  // Betting stops at the submission deadline, before the host picks the winner.
+  const { submissionsClose } = useEvent();
+  const submissionsClosed = useSubmissionsClosed();
+  const bettingClosed = closed || submissionsClosed;
   const winner = closed ? teams.find((t) => t.team_id === m?.winner_team_id) : undefined;
 
   function afterBet() {
@@ -69,7 +73,15 @@ export default function MarketsPage() {
                 <div>{plural(m.totals.team_count, 'team')}</div>
                 <div>{coin(m.totals.hackcoin_traded)} Hackcoin traded</div>
                 <div>{plural(m.totals.forecaster_count, 'forecaster')}</div>
-                <div>{closed ? 'Resolved' : 'Resolves when judges announce'}</div>
+                <div>
+                  {closed
+                    ? 'Resolved'
+                    : submissionsClosed
+                      ? 'Betting closed · resolves when judges announce'
+                      : submissionsClose
+                        ? 'Betting closes when submissions close'
+                        : 'Resolves when judges announce'}
+                </div>
               </div>
               {market.error && (
                 <div className="small" style={{ color: 'var(--amber)' }}>
@@ -82,10 +94,16 @@ export default function MarketsPage() {
 
         {m && teams.length === 0 ? (
           <div className="card stack" style={{ alignItems: 'flex-start' }}>
-            <div>No teams have signed up yet, so there is nothing to bet on.</div>
-            <Link className="btn primary" to={path('/signup')} style={{ display: 'grid', placeItems: 'center' }}>
-              Sign up a team
-            </Link>
+            <div>
+              {submissionsClosed
+                ? 'No teams signed up before submissions closed, so there was nothing to bet on.'
+                : 'No teams have signed up yet, so there is nothing to bet on.'}
+            </div>
+            {!submissionsClosed && (
+              <Link className="btn primary" to={path('/signup')} style={{ display: 'grid', placeItems: 'center' }}>
+                Sign up a team
+              </Link>
+            )}
           </div>
         ) : (
           <>
@@ -102,7 +120,7 @@ export default function MarketsPage() {
                   team={t}
                   selected={t.team_id === picked?.team_id}
                   onSelect={() => setPickedTeamId(t.team_id)}
-                  closed={closed}
+                  closed={bettingClosed}
                   isWinner={t.team_id === winner?.team_id}
                 />
               ))}
@@ -116,11 +134,37 @@ export default function MarketsPage() {
       <div className="side stack" style={{ gap: 18 }}>
         {m && picked && (
           <>
-            {closed ? <Result market={m} winner={winner} /> : <BetSlip market={m} team={picked} onPlaced={afterBet} />}
+            {closed ? (
+              <Result market={m} winner={winner} />
+            ) : submissionsClosed ? (
+              <AwaitingResult market={m} />
+            ) : (
+              <BetSlip market={m} team={picked} onPlaced={afterBet} />
+            )}
             <ScoutSummary team={picked} />
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+/** Takes the bet slip's place between the submission deadline and the host picking a winner. */
+function AwaitingResult({ market }: { market: MarketDetail }) {
+  const path = useAttendeePath();
+  return (
+    <div className="card stack" style={{ padding: 20 }}>
+      <div>
+        <div className="dim" style={{ fontSize: 12 }}>Betting closed · {market.category}</div>
+        <div style={{ fontSize: 22, fontWeight: 600, letterSpacing: '-0.01em' }}>Waiting for the judges</div>
+      </div>
+      <div className="dim" style={{ fontSize: 14 }}>
+        Submissions have closed, so this market takes no more bets. Bets already placed keep the multiple they locked
+        in and pay out when the organiser picks the winner.
+      </div>
+      <Link className="btn" to={path('/leaderboard')} style={{ display: 'grid', placeItems: 'center' }}>
+        See the leaderboard
+      </Link>
     </div>
   );
 }

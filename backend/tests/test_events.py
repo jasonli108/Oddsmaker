@@ -1,5 +1,7 @@
 """The host flow backend: reading an event page, saving the event, and the host page's numbers."""
 
+from datetime import datetime, timedelta, timezone
+
 import pytest
 from psycopg.types.json import Jsonb
 
@@ -94,8 +96,14 @@ def test_categories_map_to_the_four_markets(name, market_id):
 # ---- Launching an event -----------------------------------------------------
 
 
+def in_an_hour() -> str:
+    return (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+
+
 def launch(client, **changes) -> dict:
-    res = client.post("/api/events", json={**EVENT, **changes}, headers=HOST)
+    """Launch EVENT with these changes. Unless a deadline is given, submissions close in an hour,
+    so sign-ups and bets are open whatever the time is when the tests run."""
+    res = client.post("/api/events", json={**EVENT, "submissions_close_at": in_an_hour(), **changes}, headers=HOST)
     assert res.status_code == 201, res.text
     return res.json()
 
@@ -110,6 +118,11 @@ def sign_up(client, name, event):
     return client.post("/api/teams", json={"name": name, "idea": "An idea", "event_slug": event})
 
 
+def close_submissions(db, event: str) -> None:
+    """Move an event past its deadline: no more sign-ups or bets, and the host can pick winners."""
+    db.execute("UPDATE events SET submissions_close_at = now() - interval '1 second' WHERE slug = %s", (event,))
+
+
 def markets_of(client, event) -> list[dict]:
     return client.get("/api/markets", params={"event": event}).json()
 
@@ -121,7 +134,7 @@ def test_there_is_no_event_before_setup(client):
 
 
 def test_launch_saves_the_event_and_opens_its_markets(client):
-    saved = launch(client)
+    saved = launch(client, submissions_close_at=EVENT["submissions_close_at"])
     assert saved["slug"] == "ai-engineer-nyc-2026"
     assert saved["submissions_close_at"] in ("2026-10-11T23:59:00-04:00", "2026-10-12T03:59:00Z")
     assert client.get("/api/events/ai-engineer-nyc-2026").json() == saved
@@ -210,12 +223,69 @@ def test_launching_needs_the_host_password_a_name_and_a_market(client):
     for categories in ([], [{"name": "Best overall", "market_id": "overall", "create_market": False}]):
         no_market = client.post("/api/events", json={**EVENT, "categories": categories}, headers=HOST)
         assert no_market.status_code == 400 and "at least one" in no_market.json()["detail"]
+    for missing in ({**EVENT, "submissions_close_at": None}, {k: v for k, v in EVENT.items() if k != "submissions_close_at"}):
+        no_deadline = client.post("/api/events", json=missing, headers=HOST)
+        assert no_deadline.status_code == 400 and "when submissions close" in no_deadline.json()["detail"]
     assert client.get("/api/event").status_code == 404
 
 
 def test_joining_or_signing_up_for_an_unknown_event_is_refused(client):
     assert client.post("/api/users", json={"display_name": "Maya", "event_slug": "nope"}).status_code == 400
     assert sign_up(client, "Night Owls", "nope").status_code == 400
+
+
+# ---- The submission deadline: bets before it, winners after it ---------------
+
+
+def test_betting_closes_and_winner_picking_opens_at_the_submission_deadline(client, db):
+    event = launch(client)
+    market_id = markets_of(client, event["slug"])[0]["id"]
+    sign_up(client, "Night Owls", event["slug"])
+    user = join(client, event=event["slug"])
+    bet = {"user_id": user["id"], "market_id": market_id, "team_id": "night-owls", "stake": 10}
+    pick_winner = lambda: client.post(f"/api/markets/{market_id}/resolve", json={"winner_team_id": "night-owls"}, headers=HOST)  # noqa: E731
+
+    # Before the deadline: bets are taken, and the host can't close the market yet.
+    assert client.post("/api/bets", json=bet).status_code == 200
+    too_early = pick_winner()
+    assert too_early.status_code == 400 and "still open" in too_early.json()["detail"]
+    assert client.get(f"/api/markets/{market_id}").json()["status"] == "open"
+
+    close_submissions(db, event["slug"])
+
+    # After it: no more bets, and the host can pick the winner.
+    too_late = client.post("/api/bets", json=bet)
+    assert too_late.status_code == 400 and "submissions have closed" in too_late.json()["detail"]
+    assert client.get(f"/api/users/{user['id']}").json()["balance"] == 990  # only the first bet was taken
+    assert pick_winner().status_code == 200
+
+
+def test_team_sign_up_closes_at_the_submission_deadline(client, db):
+    event = launch(client)
+    market_id = markets_of(client, event["slug"])[0]["id"]
+    assert sign_up(client, "Night Owls", event["slug"]).status_code == 201
+    close_submissions(db, event["slug"])
+    late = sign_up(client, "Late Entry", event["slug"])
+    assert late.status_code == 400 and "sign-up is closed" in late.json()["detail"]
+    assert [t["team_id"] for t in client.get(f"/api/markets/{market_id}").json()["teams"]] == ["night-owls"]
+    # Another event that is still open is not affected.
+    other = launch(client, name="Still Open")
+    assert sign_up(client, "Late Entry", other["slug"]).status_code == 201
+
+
+# ---- One team per player ----------------------------------------------------
+
+
+def test_a_player_can_sign_up_one_team_per_event(client):
+    event = launch(client)
+    maya, dev = join(client, "Maya", event["slug"]), join(client, "Dev", event["slug"])
+    as_maya = {"idea": "An idea", "event_slug": event["slug"], "creator_user_id": maya["id"]}
+    assert client.post("/api/teams", json={**as_maya, "name": "Night Owls"}).status_code == 201
+    second = client.post("/api/teams", json={**as_maya, "name": "Early Birds"})
+    assert second.status_code == 400 and "already signed up a team" in second.json()["detail"]
+    # Someone else can still add theirs.
+    assert client.post("/api/teams", json={**as_maya, "name": "Early Birds", "creator_user_id": dev["id"]}).status_code == 201
+    assert [t["name"] for t in client.get("/api/teams", params={"event": event["slug"]}).json()] == ["Night Owls", "Early Birds"]
 
 
 # ---- Starting balance: the host's choice, per event --------------------------
@@ -238,7 +308,7 @@ def test_the_host_chooses_the_starting_balance(client):
     assert client.post("/api/bets", json={**bet, "stake": 500}).json()["new_balance"] == 0
 
 
-def test_net_profit_does_not_assume_a_1000_start(client):
+def test_net_profit_does_not_assume_a_1000_start(client, db):
     event = launch(client, starting_balance=500)
     market_id = markets_of(client, event["slug"])[0]["id"]
     sign_up(client, "Night Owls", event["slug"])
@@ -249,6 +319,7 @@ def test_net_profit_does_not_assume_a_1000_start(client):
     bet = client.post("/api/bets", json={"user_id": user["id"], "market_id": market_id, "team_id": "night-owls", "stake": 100}).json()
     assert bet["multiple"] == pytest.approx(2)  # two teams, neither seeded yet
     assert summary()["net_profit"] == -100
+    close_submissions(db, event["slug"])
     client.post(f"/api/markets/{market_id}/resolve", json={"winner_team_id": "night-owls"}, headers=HOST)
     after = summary()
     assert after["net_profit"] == pytest.approx(100) and after["rank"] == 1

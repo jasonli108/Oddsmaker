@@ -5,7 +5,7 @@ type Props = {
   team: MarketTeam;
   selected: boolean;
   onSelect: () => void;
-  /** The market is resolved: no more bets, the row only selects a team to read about. */
+  /** No more bets (submissions have closed, or the market is resolved): the row only selects a team to read about. */
   closed: boolean;
   isWinner: boolean;
 };

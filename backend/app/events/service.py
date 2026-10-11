@@ -86,7 +86,8 @@ async def create_event(body: EventCreate) -> Event:
     """Launch a new event: save it and open a market for every category the host ticked.
 
     Each event is separate. Its slug, which names it in the attendee link, is made from the name
-    and never changes; a second event of the same name gets a numbered slug. A category Scout has
+    and never changes; a second event of the same name gets a numbered slug. It must have a
+    submission deadline. A category Scout has
     no score for (anything but overall, Nimble, Gemini and Tiger Data) is priced by the overall score.
     """
     categories = [
@@ -94,6 +95,9 @@ async def create_event(body: EventCreate) -> Event:
         for c in body.categories
     ]
     with_market = [c for c in categories if c.create_market]
+    # The deadline is when sign-ups and betting stop and winner picking starts, so an event needs one.
+    if body.submissions_close_at is None:
+        raise EventError("Set when submissions close. Team sign-up and betting stop then, and you pick winners after it.")
     if not with_market:
         raise EventError("Add at least one prize category with a market, so attendees have something to bet on.")
     base = re.sub(r"[^a-z0-9]+", "-", body.name.lower()).strip("-") or "event"

@@ -45,11 +45,14 @@ Needs Python 3.11+, Node 20+, and Docker for the local database.
 
 ```bash
 make setup      # venv, pip install, npm install, creates backend/.env
-make db         # start local TimescaleDB, apply schema, seed a sample event with 4 markets and 6 teams
+make db         # start local TimescaleDB, apply schema, seed the sample event (4 markets, 6 teams, sample reports)
+make db-seed CLOSES_IN=15   # restart the sample event's clock: submissions close 15 minutes from now
 make backend    # http://localhost:8000  (interactive docs at /docs)
 make frontend   # http://localhost:5173  (proxies /api to the backend)
 make test       # backend tests and frontend typecheck
 ```
+
+The sample event is set up for a demo. Its submissions close 15 minutes after it is first seeded, so you can show sign-up and betting, then the close, then picking winners; `make db-seed CLOSES_IN=<minutes>` restarts that clock (it does not reopen a market whose winner was picked). Its six teams carry canned Scout reports, each opening with "Sample report.", and uneven odds set from them.
 
 The API needs a database. `DATABASE_URL` in `backend/.env` decides which one: the local Docker database from `make db`, or Tiger Cloud. `make db-init` and `make db-seed` act on whichever it points at, so check it before you run them.
 
@@ -78,15 +81,15 @@ All routes are under `/api`. Shapes are defined in `backend/app/schemas.py`.
 | `GET /markets/:id` | Markets tab | Teams with price, multiple, Scout's odds, plus totals |
 | `GET /markets/:id/history` | Price chart | Per-minute prices from the continuous aggregate |
 | `GET /markets/:id/feed` | Latest trades | Last 20 bets and Scout moves, newest first |
-| `POST /bets` | Bet slip | Places the bet, returns the locked multiple and new balance |
-| `POST /markets/:id/resolve` | Host only | Sets the winner and pays out. Needs the `X-Host-Password` header |
+| `POST /bets` | Bet slip | Places the bet, returns the locked multiple and new balance. Refused once the event's submissions have closed |
+| `POST /markets/:id/resolve` | Host only | Sets the winner and pays out. Needs the `X-Host-Password` header. Refused until the event's submissions have closed |
 | `GET /teams?event=<slug>` | Scout reports tab | Lists that event's teams |
-| `POST /teams` | Sign-up form | Creates the team in the event named by `event_slug`, starts Scout's first run |
+| `POST /teams` | Sign-up form | Creates the team in the event named by `event_slug`, starts Scout's first run. One team per player (`creator_user_id`) per event. Refused once the event's submissions have closed |
 | `GET /teams/:id/report` | Scout summary, Scout reports tab | Latest report plus the history of Scout's odds |
 | `POST /users`, `GET /users/:id` | Header | Display name and `event_slug` in, a player of that event with its starting Hackcoin out |
 | `GET /leaderboard?event=<slug>` | Leaderboard tab | That event's players ranked by balance |
 | `POST /events/extract` | Host setup | Reads the host's event page into a draft to check. Sample data, marked as such, until Scout can read event pages |
-| `POST /events` | Host setup | Launches a new event: saves it, opens a market for each prize category the host ticked, and sets how much Hackcoin its attendees start with. Every call makes a separate event. Needs `X-Host-Password` |
+| `POST /events` | Host setup | Launches a new event, which must have a submission deadline: saves it, opens a market for each prize category the host ticked, and sets how much Hackcoin its attendees start with. Every call makes a separate event. Needs `X-Host-Password` |
 | `GET /events/:slug` | Header | One event's details |
 | `GET /event` | Landing page | The first event this deployment ran (the seeded sample), for "See a live market" |
 | `GET /host/summary?event=<slug>` | Host page | That event's attendees, teams, bets, Hackcoin traded, a row per market, top five forecasters. Needs `X-Host-Password` |
