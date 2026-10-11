@@ -88,7 +88,7 @@ All routes are under `/api`. Shapes are defined in `backend/app/schemas.py`.
 | `GET /teams/:id/report` | Scout summary, Scout reports tab | Latest report plus the history of Scout's odds |
 | `POST /users`, `GET /users/:id` | Header | Display name and `event_slug` in, a player of that event with its starting Hackcoin out |
 | `GET /leaderboard?event=<slug>` | Leaderboard tab | That event's players ranked by balance |
-| `POST /events/extract` | Host setup | Reads the host's event page into a draft to check. Sample data, marked as such, until Scout can read event pages |
+| `POST /events/extract` | Host setup | Scout reads the host's event page (one Nimble extract, one Gemini call) into a draft to check. Runs whenever `NIMBLE_API_KEY` and `GEMINI_API_KEY` are set, whatever `SCOUT_ENABLED` says; without them it returns sample data, marked as such |
 | `POST /events` | Host setup | Launches a new event, which must have a submission deadline: saves it, opens a market for each prize category the host ticked, and sets how much Hackcoin its attendees start with. Every call makes a separate event. Needs `X-Host-Password` |
 | `GET /events/:slug` | Header | One event's details |
 | `GET /event` | Landing page | The first event this deployment ran (the seeded sample), for "See a live market" |

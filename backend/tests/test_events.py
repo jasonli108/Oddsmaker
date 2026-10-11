@@ -9,7 +9,7 @@ from app import sample_data
 from app.config import get_settings
 from app.events import service as events
 from app.schemas import EventCategory, EventDraft
-from app.scout import pipeline
+from app.scout import gemini, nimble, pipeline
 
 HOST = {"X-Host-Password": "test-host-password"}
 EVENT_URL = "https://www.mlh.com/events/ai-engineer-nyc-2026"
@@ -29,14 +29,24 @@ EVENT = {
 
 
 @pytest.fixture
-def scout_on(monkeypatch):
-    monkeypatch.setattr(get_settings(), "scout_enabled", True)
+def scout_keys(monkeypatch):
+    """Scout has both of its keys. SCOUT_ENABLED stays false: reading an event page doesn't wait for it."""
+    monkeypatch.setattr(get_settings(), "nimble_api_key", "test-nimble-key")
+    monkeypatch.setattr(get_settings(), "gemini_api_key", "test-gemini-key")
+
+
+def refuse_to_read(monkeypatch):
+    async def extract_event(url):
+        raise AssertionError("Scout must not be asked to read the page")
+
+    monkeypatch.setattr(pipeline, "extract_event", extract_event)
 
 
 # ---- Reading the event page ------------------------------------------------
 
 
-def test_extract_serves_marked_sample_data_while_scout_is_off(client):
+def test_extract_serves_marked_sample_data_without_scouts_keys(client, monkeypatch):
+    refuse_to_read(monkeypatch)
     draft = client.post("/api/events/extract", json={"url": EVENT_URL}).json()
     assert draft["is_sample"] is True
     assert draft["name"] == "AI Engineer NYC 2026" and draft["source_url"] == EVENT_URL
@@ -47,29 +57,65 @@ def test_extract_serves_marked_sample_data_while_scout_is_off(client):
     assert by_name["Best use of Nimble"]["prize"] is None
 
 
-def test_extract_uses_scout_when_it_is_on(client, scout_on, monkeypatch):
+@pytest.mark.parametrize("missing_key", ["nimble_api_key", "gemini_api_key"])
+def test_extract_needs_both_keys(client, scout_keys, monkeypatch, missing_key):
+    monkeypatch.setattr(get_settings(), missing_key, "")
+    refuse_to_read(monkeypatch)
+    assert client.post("/api/events/extract", json={"url": EVENT_URL}).json()["is_sample"] is True
+
+
+def test_extract_uses_scout_when_it_has_its_keys(client, scout_keys, monkeypatch):
     async def extract_event(url):
         return EventDraft(name="Real Hack", categories=[EventCategory(name="Best use of Gemini", market_id="gemini")])
 
-    monkeypatch.setattr(pipeline, "extract_event", extract_event, raising=False)
+    monkeypatch.setattr(pipeline, "extract_event", extract_event)
+    assert get_settings().scout_enabled is False  # the timed refresh is off; the host's read still runs
     draft = client.post("/api/events/extract", json={"url": EVENT_URL}).json()
     assert draft["name"] == "Real Hack" and draft["is_sample"] is False
     assert draft["source_url"] == EVENT_URL  # filled in when Scout leaves it out
 
 
-def test_a_failed_read_returns_an_empty_draft_not_sample_data(client, scout_on, monkeypatch):
+def test_the_whole_read_from_page_text_to_draft(client, scout_keys, monkeypatch):
+    """Everything between the endpoint and the two outside calls: Nimble's page in, the draft out."""
+    seen = {}
+
+    async def extract(url, *, screenshot=True, render=True):
+        seen["nimble"] = (url, screenshot, render)
+        return nimble.PageExtract(url=url, is_up=True, load_ms=800, text="AI Engineer NYC 2026 ... Best use of Gemini: swag")
+
+    async def read_event_page(page):
+        seen["gemini"] = page.text
+        return gemini.GeminiEvent(
+            name=" AI Engineer NYC 2026 ", hosted_by="MLH", location="New York, NY",
+            starts_at="2026-10-11T09:00:00-04:00", submissions_close_at="tonight",  # not a time: counts as missing
+            categories=[
+                gemini.GeminiEventCategory(name="Best use of Gemini API", prize="Swag kits"),
+                gemini.GeminiEventCategory(name="Best use of Snowflake", prize=""),
+            ],
+        )
+
+    monkeypatch.setattr(nimble, "extract", extract)
+    monkeypatch.setattr(gemini, "read_event_page", read_event_page)
+    draft = client.post("/api/events/extract", json={"url": EVENT_URL}).json()
+    assert seen["nimble"] == (EVENT_URL, False, False) and "Best use of Gemini" in seen["gemini"]
+    assert (draft["name"], draft["hosted_by"], draft["location"]) == ("AI Engineer NYC 2026", "MLH", "New York, NY")
+    assert draft["starts_at"] in ("2026-10-11T09:00:00-04:00", "2026-10-11T13:00:00Z")
+    assert draft["submissions_close_at"] is None and draft["missing"] == ["submissions_close_at"]
+    assert draft["categories"] == [
+        {"name": "Best use of Gemini API", "prize": "Swag kits", "market_id": "gemini", "create_market": None},
+        {"name": "Best use of Snowflake", "prize": None, "market_id": None, "create_market": None},
+    ]
+    assert draft["is_sample"] is False and draft["source_url"] == EVENT_URL
+
+
+def test_a_failed_read_returns_an_empty_draft_not_sample_data(client, scout_keys, monkeypatch):
     async def extract_event(url):
         raise RuntimeError("Nimble is down")
 
-    monkeypatch.setattr(pipeline, "extract_event", extract_event, raising=False)
+    monkeypatch.setattr(pipeline, "extract_event", extract_event)
     draft = client.post("/api/events/extract", json={"url": EVENT_URL}).json()
     assert draft["name"] == "" and draft["categories"] == [] and draft["is_sample"] is False
     assert set(draft["missing"]) >= {"name", "location", "submissions_close_at", "categories"}
-
-
-def test_scout_on_but_not_written_yet_falls_back_to_sample(client, scout_on, monkeypatch):
-    monkeypatch.delattr(pipeline, "extract_event", raising=False)
-    assert client.post("/api/events/extract", json={"url": EVENT_URL}).json()["is_sample"] is True
 
 
 @pytest.mark.parametrize("url", ["mlh.com/events/x", "ftp://mlh.com/x", "javascript:alert(1)", "   "])

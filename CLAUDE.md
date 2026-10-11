@@ -59,7 +59,7 @@ Unfinished work is marked `TODO(market)`, `TODO(frontend)` or `TODO(scout)`.
 - A failed fetch must never zero a team. Reuse the team's last report and save it with `stale = true`.
 - Scout reads only the links a team submitted. No scraping of LinkedIn or other personal profiles.
 - Check the Nimble docs (https://docs.nimbleway.com/home) and the Gemini docs for exact endpoints, parameters and model ids before writing a call. Don't guess them.
-- `SCOUT_ENABLED` stays `false` by default so local runs don't spend Nimble credits.
+- `SCOUT_ENABLED` stays `false` by default so local runs don't spend Nimble credits. It switches the work Scout does unasked: the report at sign-up and the 30-minute refresh. The host's event-page read (`POST /events/extract`) is not behind it: it runs on request whenever both keys are set.
 
 ## Frontend rules
 
