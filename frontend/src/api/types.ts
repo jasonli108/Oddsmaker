@@ -24,3 +24,10 @@ export type BetReceipt = S['BetReceipt'];
 export type ScoutReport = S['ScoutReport'];
 export type TeamReport = S['TeamReport'];
 export type ResolveResult = S['ResolveResult'];
+/** Named EventInfo so it doesn't shadow the browser's own Event type. */
+export type EventInfo = S['Event'];
+export type EventCreate = S['EventCreate'];
+export type EventDraft = S['EventDraft'];
+export type EventCategory = S['EventCategory'];
+export type HostSummary = S['HostSummary'];
+export type HostMarketRow = S['HostMarketRow'];
