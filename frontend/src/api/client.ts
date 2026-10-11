@@ -1,7 +1,11 @@
 import type {
   BetCreate,
   BetReceipt,
+  EventCreate,
+  EventDraft,
+  EventInfo,
   FeedItem,
+  HostSummary,
   LeaderboardEntry,
   MarketDetail,
   MarketHistory,
@@ -62,6 +66,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 const post = <T>(path: string, body: unknown, headers?: HeadersInit) =>
   request<T>(path, { method: 'POST', body: JSON.stringify(body), headers });
 
+/** Host-only routes check this header against HOST_PASSWORD on the server. */
+const asHost = (hostPassword: string) => ({ 'X-Host-Password': hostPassword });
+
 export const api = {
   listMarkets: () => request<MarketSummary[]>('/markets'),
   getMarket: (id: string) => request<MarketDetail>(`/markets/${id}`),
@@ -69,7 +76,7 @@ export const api = {
   getFeed: (id: string) => request<FeedItem[]>(`/markets/${id}/feed`),
   placeBet: (bet: BetCreate) => post<BetReceipt>('/bets', bet),
   resolveMarket: (id: string, winnerTeamId: string, hostPassword: string) =>
-    post<ResolveResult>(`/markets/${id}/resolve`, { winner_team_id: winnerTeamId }, { 'X-Host-Password': hostPassword }),
+    post<ResolveResult>(`/markets/${id}/resolve`, { winner_team_id: winnerTeamId }, asHost(hostPassword)),
 
   listTeams: () => request<Team[]>('/teams'),
   createTeam: (team: TeamCreate) => post<Team>('/teams', team),
@@ -78,4 +85,10 @@ export const api = {
   createUser: (displayName: string) => post<User>('/users', { display_name: displayName }),
   getUser: (id: string) => request<User>(`/users/${id}`),
   getLeaderboard: () => request<LeaderboardEntry[]>('/leaderboard'),
+
+  getEvent: () => request<EventInfo>('/event'),
+  saveEvent: (event: EventCreate, hostPassword: string) =>
+    request<EventInfo>('/event', { method: 'PUT', body: JSON.stringify(event), headers: asHost(hostPassword) }),
+  extractEvent: (url: string) => post<EventDraft>('/events/extract', { url }),
+  getHostSummary: (hostPassword: string) => request<HostSummary>('/host/summary', { headers: asHost(hostPassword) }),
 };

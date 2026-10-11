@@ -157,6 +157,10 @@ button:disabled {
   padding: 0 14px;
 }
 
+select.input {
+  cursor: pointer;
+}
+
 .dot {
   width: 10px;
   height: 10px;
