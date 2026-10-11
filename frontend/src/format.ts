@@ -13,12 +13,19 @@ export function ago(iso: string, now = Date.now()): string {
   return `${Math.floor(s / 3600)}h ago`;
 }
 
-/** Milliseconds as H:MM:SS, e.g. 11:42:08. */
+/** Milliseconds as H:MM:SS, e.g. 11:42:08, or MM:SS under an hour. */
 export function countdown(ms: number): string {
   const total = Math.max(0, Math.floor(ms / 1000));
   const two = (n: number) => String(n).padStart(2, '0');
-  return `${Math.floor(total / 3600)}:${two(Math.floor((total % 3600) / 60))}:${two(total % 60)}`;
+  const hours = Math.floor(total / 3600);
+  const rest = `${two(Math.floor((total % 3600) / 60))}:${two(total % 60)}`;
+  return hours > 0 ? `${hours}:${rest}` : rest;
 }
+
+/** A gap between two fractions in whole percentage points, e.g. points(0.27, 0.31) is -4. */
+export const points = (a: number, b: number) => Math.round(a * 100) - Math.round(b * 100);
+
+export const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
 export const clock =(iso: string) =>
   new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });

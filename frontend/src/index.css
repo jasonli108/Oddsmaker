@@ -12,6 +12,7 @@
   --on-accent: #08210f;
   --amber: #ffc876;
   --amber-border: #5a4520;
+  --good: #7fe3b4;
   --danger: #f29bb7;
 
   --font-sans: 'IBM Plex Sans', system-ui, sans-serif;
@@ -35,7 +36,8 @@ body {
 }
 
 h1,
-h2 {
+h2,
+h3 {
   margin: 0;
   font-weight: 600;
 }
@@ -46,6 +48,9 @@ h1 {
 }
 h2 {
   font-size: 16px;
+}
+h3 {
+  font-size: 15px;
 }
 
 a {

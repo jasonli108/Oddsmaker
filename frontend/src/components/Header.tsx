@@ -1,7 +1,8 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useState, type FormEvent } from 'react';
 import { NavLink } from 'react-router-dom';
 import { EVENT_NAME, SUBMISSIONS_CLOSE } from '../config';
 import { coin, countdown } from '../format';
+import { useNow } from '../hooks/useNow';
 import { useUser } from '../hooks/useUser';
 
 const TABS = [
@@ -49,14 +50,7 @@ export default function Header() {
 }
 
 function Countdown() {
-  const [now, setNow] = useState(Date.now());
-
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(timer);
-  }, []);
-
-  const left = SUBMISSIONS_CLOSE.getTime() - now;
+  const left = SUBMISSIONS_CLOSE.getTime() - useNow();
   if (left <= 0) return <div className="dim small">Submissions closed</div>;
   return (
     <div className="dim small">
