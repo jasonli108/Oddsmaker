@@ -6,7 +6,7 @@ the build spec's worked example, so Orbit opens at 27%.
 
 import pytest
 
-from app.config import get_settings
+from app.market import service
 
 
 def join(client, name="Maya") -> dict:
@@ -155,31 +155,194 @@ def test_a_long_shot_is_floored_at_2_percent(client, db):
     assert receipt["multiple"] == pytest.approx(50)
 
 
-# ---- Still on sample data: replace these as each piece becomes real --------
+# ---- Scout moves the price --------------------------------------------------
 
 
-def test_market_history_and_feed(client):
+def test_scout_odds_resplit_the_seed_and_move_prices(client, call, db):
+    user = join(client)
+    bet(client, user["id"], "orbit", 100)
+    call(service.apply_scout_odds, "overall", {"orbit": 30, "ledger": 70})  # shares need not sum to 1
+
+    assert dict(db.execute("SELECT team_id, seed FROM positions WHERE market_id = 'overall'")) == {
+        "orbit": 600, "ledger": 1400, "parsel": 0, "night": 0, "kiln": 0, "tally": 0,
+    }
+    market = client.get("/api/markets/overall").json()
+    orbit = team(market, "orbit")
+    assert orbit["scout_odds"] == pytest.approx(0.3)
+    assert orbit["staked"] == 100  # the bet is untouched
+    assert team(market, "parsel")["price"] == pytest.approx(0.02)  # no seed, so the floor
+    assert sum(t["price"] for t in market["teams"]) == pytest.approx(1)
+    assert db.execute("SELECT count(*) FROM price_ticks WHERE source = 'scout'").fetchone()[0] == 6
+
+
+def test_scout_cannot_move_a_resolved_or_unknown_market(call, db):
+    db.execute("UPDATE markets SET status = 'resolved', winner_team_id = 'ledger' WHERE id = 'overall'")
+    call(service.apply_scout_odds, "overall", {"orbit": 1})
+    call(service.apply_scout_odds, "nope", {"orbit": 1})
+    assert db.execute("SELECT seed FROM positions WHERE market_id = 'overall' AND team_id = 'orbit'").fetchone()[0] == 540
+    assert db.execute("SELECT count(*) FROM price_ticks").fetchone()[0] == 0
+
+
+# ---- History and feed --------------------------------------------------------
+
+
+def test_history_comes_from_the_continuous_aggregate(client):
+    assert all(s["points"] == [] for s in client.get("/api/markets/overall/history").json()["series"])
+    user = join(client)
+    bet(client, user["id"], "orbit", 100)
+    bet(client, user["id"], "orbit", 100)
+
     history = client.get("/api/markets/overall/history").json()
-    assert history["series"] and history["series"][0]["points"]
+    assert history["market_id"] == "overall" and len(history["series"]) == 6
+    orbit = next(s for s in history["series"] if s["team_id"] == "orbit")
+    # Two bets in the same minute collapse into one point holding the last price.
+    assert len(orbit["points"]) == 1
+    assert orbit["points"][0]["price"] == pytest.approx(740 / 2200)
+    assert orbit["name"] == "Team Orbit" and orbit["color"].startswith("#")
+    assert client.get("/api/markets/nope/history").status_code == 404
+
+
+def test_feed_lists_bets_and_scout_moves_newest_first(client, call):
+    maya, dev = join(client, "Maya"), join(client, "Dev")
+    bet(client, maya["id"], "orbit", 50)
+    bet(client, dev["id"], "kiln", 200)
+    # Scout swaps its view of Parsel and Night Shift and leaves everyone else's seed as it was.
+    call(service.apply_scout_odds, "overall", {"orbit": 540, "ledger": 500, "parsel": 260, "night": 400, "kiln": 200, "tally": 100})
+
     feed = client.get("/api/markets/overall/feed").json()
-    assert {item["kind"] for item in feed} <= {"bet", "scout"}
+    times = [item["time"] for item in feed]
+    assert times == sorted(times, reverse=True)
+
+    bets = [i for i in feed if i["kind"] == "bet"]
+    assert [(b["user_display_name"], b["team_name"], b["stake"]) for b in bets] == [("Dev", "Kiln", 200), ("Maya", "Team Orbit", 50)]
+    assert bets[1]["price"] == pytest.approx(0.27)
+
+    moves = {i["team_id"]: i for i in feed if i["kind"] == "scout"}
+    # Only the two teams whose price moved by a point or more get a card.
+    assert set(moves) == {"parsel", "night"}
+    assert moves["parsel"]["price_from"] == pytest.approx(400 / 2250)
+    assert moves["parsel"]["price_to"] == pytest.approx(260 / 2250)
+    assert feed[0]["kind"] == "scout"  # Scout moved last
+    assert client.get("/api/markets/nimble/feed").json() == []
+    assert client.get("/api/markets/nope/feed").status_code == 404
 
 
-def test_create_team_and_read_report(client):
-    body = {"name": "New Team", "idea": "An idea", "repo_url": "https://github.com/example/new"}
+def test_feed_is_capped_at_20(client):
+    user = join(client)
+    for _ in range(25):
+        bet(client, user["id"], "orbit", 1)
+    assert len(client.get("/api/markets/overall/feed").json()) == 20
+
+
+# ---- Team sign-up ------------------------------------------------------------
+
+
+def test_a_new_team_enters_every_market_at_the_floor(client, db):
+    body = {"name": "Night Owls", "idea": "Flashcards from lecture audio", "repo_url": "https://github.com/example/owls"}
     res = client.post("/api/teams", json=body)
-    assert res.status_code == 201 and res.json()["id"] == "new-team"
+    assert res.status_code == 201
+    created = res.json()
+    assert created["id"] == "night-owls" and created["demo_url"] is None and created["color"] == "#7DB8FF"  # 7th team wraps round
+    assert created in client.get("/api/teams").json()
+
+    for market_id in ("overall", "nimble", "gemini", "tiger_data"):
+        market = client.get(f"/api/markets/{market_id}").json()
+        owls = team(market, "night-owls")
+        assert owls["price"] == pytest.approx(0.02) and owls["multiple"] == pytest.approx(50)
+        assert market["totals"]["team_count"] == 7
+        assert sum(t["price"] for t in market["teams"]) == pytest.approx(1)
+    # It has a report page straight away, with no report on it yet.
+    report = client.get("/api/teams/night-owls/report").json()
+    assert report["team"]["name"] == "Night Owls" and report["report"] is None
+
+
+def test_team_names_are_unique_and_ids_never_collide(client):
+    assert client.post("/api/teams", json={"name": "Night Owls", "idea": "x"}).status_code == 201
+    dup = client.post("/api/teams", json={"name": "night owls", "idea": "y"})
+    assert dup.status_code == 400 and "already" in dup.json()["detail"]
+    # A different name that boils down to the same id gets a suffix.
+    assert client.post("/api/teams", json={"name": "Night-Owls!", "idea": "z"}).json()["id"] == "night-owls-2"
+    assert client.post("/api/teams", json={"name": "!!!", "idea": "z"}).json()["id"] == "team"
+
+
+def test_a_new_team_skips_resolved_markets(client, db):
+    db.execute("UPDATE markets SET status = 'resolved', winner_team_id = 'ledger' WHERE id = 'nimble'")
+    client.post("/api/teams", json={"name": "Late Entry", "idea": "x"})
+    assert client.get("/api/markets/nimble").json()["totals"]["team_count"] == 6
+    assert client.get("/api/markets/overall").json()["totals"]["team_count"] == 7
+
+
+# ---- Resolving and the leaderboard -------------------------------------------
+
+HOST = {"X-Host-Password": "test-host-password"}
+
+
+def resolve(client, winner="orbit", market_id="overall", headers=HOST):
+    return client.post(f"/api/markets/{market_id}/resolve", json={"winner_team_id": winner}, headers=headers)
+
+
+def test_resolving_pays_winners_their_locked_multiple(client):
+    maya, dev, priya = join(client, "Maya"), join(client, "Dev"), join(client, "Priya")
+    first = bet(client, maya["id"], "orbit", 100).json()   # 27%, pays 370.37
+    second = bet(client, maya["id"], "orbit", 100).json()  # 30.5%, pays less
+    bet(client, dev["id"], "ledger", 300)
+    assert second["multiple"] < first["multiple"]
+
+    res = resolve(client, "orbit")
+    assert res.status_code == 200
+    result = res.json()
+    assert result["market"] == {**result["market"], "id": "overall", "status": "resolved", "winner_team_id": "orbit"}
+    assert result["bets_paid"] == 2
+    assert result["total_paid"] == pytest.approx(first["potential_payout"] + second["potential_payout"])
+
+    balance = lambda u: client.get(f"/api/users/{u['id']}").json()["balance"]  # noqa: E731
+    assert balance(maya) == pytest.approx(800 + first["potential_payout"] + second["potential_payout"])
+    assert balance(dev) == 700      # lost the stake, paid nothing
+    assert balance(priya) == 1000   # never bet
+
+    market = client.get("/api/markets/overall").json()
+    assert market["status"] == "resolved" and market["winner_team_id"] == "orbit"
+    board = client.get("/api/leaderboard").json()
+    assert [(e["rank"], e["display_name"]) for e in board] == [(1, "Maya"), (2, "Priya"), (3, "Dev")]
+
+
+def test_a_market_resolves_only_once(client):
+    maya = join(client)
+    bet(client, maya["id"], "orbit", 100)
+    assert resolve(client, "orbit").status_code == 200
+    again = resolve(client, "orbit")
+    assert again.status_code == 400 and "already" in again.json()["detail"]
+    assert client.get(f"/api/users/{maya['id']}").json()["balance"] == pytest.approx(900 + 370.37)
+    assert bet(client, maya["id"], "orbit", 10).status_code == 400
+
+
+def test_resolve_checks_the_password_and_the_winner(client):
+    assert resolve(client, headers={}).status_code == 401
+    assert resolve(client, headers={"X-Host-Password": "wrong"}).status_code == 401
+    assert resolve(client, winner="nobody").status_code == 404
+    assert resolve(client, market_id="nope").status_code == 404
+    assert client.get("/api/markets/overall").json()["status"] == "open"
+
+
+def test_resolving_one_market_leaves_the_others_open(client):
+    maya = join(client)
+    resolve(client, "orbit", market_id="overall")
+    assert bet(client, maya["id"], "orbit", 10, market_id="nimble").status_code == 200
+
+
+def test_leaderboard_ties_share_a_rank(client):
+    assert client.get("/api/leaderboard").json() == []
+    maya, _dev, _priya = join(client, "Maya"), join(client, "Dev"), join(client, "Priya")
+    bet(client, maya["id"], "orbit", 100)
+    assert [(e["rank"], e["display_name"], e["balance"]) for e in client.get("/api/leaderboard").json()] == [
+        (1, "Dev", 1000), (1, "Priya", 1000), (3, "Maya", 900),
+    ]
+
+
+# ---- Scout reports: still sample data until the Scout stream lands -----------
+
+
+def test_sample_team_reports_have_all_four_scores(client):
     report = client.get("/api/teams/orbit/report").json()
     assert set(report["report"]["scores"]) == {"overall", "nimble", "gemini", "tiger_data"}
-
-
-def test_leaderboard(client):
-    assert client.get("/api/leaderboard").json()[0]["rank"] == 1
-
-
-def test_resolve_needs_the_host_password(client):
-    body = {"winner_team_id": "orbit"}
-    assert client.post("/api/markets/overall/resolve", json=body).status_code == 401
-    headers = {"X-Host-Password": get_settings().host_password}
-    res = client.post("/api/markets/overall/resolve", json=body, headers=headers)
-    assert res.status_code == 200 and res.json()["market"]["status"] == "resolved"
+    assert client.get("/api/teams/nobody/report").status_code == 404

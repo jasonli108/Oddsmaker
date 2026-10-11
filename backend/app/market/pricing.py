@@ -48,6 +48,14 @@ def multiple_for(price: float) -> float:
     return 1 / price
 
 
+def payout(stake: float, multiple: float) -> float:
+    """What one winning bet pays, to the cent.
+
+    The bet receipt and the resolve step both call this, so the amount promised is the amount paid.
+    """
+    return round(stake * multiple, 2)
+
+
 def split_seed(odds: dict[str, float], seed_total: float) -> dict[str, float]:
     """Split a market's seed across teams in proportion to Scout's odds."""
     if not odds:

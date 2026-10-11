@@ -64,6 +64,8 @@ def db(_database):
     """A direct connection to a freshly wiped and seeded test database, for setup and assertions."""
     with psycopg.connect(TEST_DATABASE_URL, autocommit=True) as conn:
         conn.execute("TRUNCATE bets, reports, price_ticks, positions, users, markets, teams RESTART IDENTITY CASCADE")
+        # Truncating the ticks does not empty the continuous aggregate; refreshing it does.
+        conn.execute("CALL refresh_continuous_aggregate('price_ticks_1m', NULL, NULL)")
         for m in sample_data.MARKETS:
             conn.execute("INSERT INTO markets (id, title, category) VALUES (%s, %s, %s)", (m.id, m.title, m.category))
         for t in sample_data.TEAMS:
@@ -82,3 +84,12 @@ def db(_database):
 def client(_client, db):
     """The API, on a freshly seeded database."""
     return _client
+
+
+@pytest.fixture
+def call(_client, db):
+    """Run one of the app's async functions on the app's own event loop, where its connection pool lives.
+
+    For service functions that have no endpoint, e.g. call(service.apply_scout_odds, "overall", odds).
+    """
+    return _client.portal.call

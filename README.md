@@ -16,7 +16,7 @@ The full plan is in [`brainstorming/Oddsmaker build spec.md`](brainstorming/Odds
 
 ## Status
 
-Markets, bets, players and the team list are **real**: a bet is stored in Tiger Data and moves the price and your balance. Price history, the trade feed, team sign-up, resolving a market, the leaderboard and Scout reports still answer with **sample data** in their final shape.
+The market is **real** end to end: sign-up, bets, prices, the price chart, the trade feed, resolving a market and the leaderboard all read and write Tiger Data. Scout reports still answer with **sample data** in their final shape, and Scout does not move prices yet; a newly signed-up team sits at the 2% floor until it does.
 
 ## Layout
 

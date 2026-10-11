@@ -10,6 +10,7 @@ team's last report and save it with stale = true.
 import logging
 
 from app import sample_data
+from app.market import service as market_service
 from app.schemas import Team, TeamReport
 
 log = logging.getLogger(__name__)
@@ -71,6 +72,10 @@ async def refresh_all() -> None:
 async def get_team_report(team_id: str) -> TeamReport | None:
     """Latest report for a team plus the history of Scout's odds, for GET /api/teams/:id/report."""
     # TODO(scout): latest row from reports; odds history from scout-sourced price_ticks or past reports.
-    if team_id not in sample_data.TEAMS_BY_ID:
+    team = await market_service.get_team(team_id)
+    if team is None:
         return None
+    if team_id not in sample_data.TEAMS_BY_ID:
+        # A real team Scout has not reported on yet. The frontend shows "writing its first report".
+        return TeamReport(team=team, report=None, created_at=None, stale=False, odds_history=[])
     return sample_data.team_report(team_id)

@@ -14,7 +14,10 @@ async def list_teams():
 
 @router.post("", response_model=Team, status_code=201)
 async def create_team(body: TeamCreate, background: BackgroundTasks):
-    team = await service.create_team(body)
+    try:
+        team = await service.create_team(body)
+    except service.MarketError as e:
+        raise HTTPException(400, str(e))
     # Scout's first run takes a while (web search, demo fetch, Gemini), so it runs after the response.
     background.add_task(pipeline.run_for_team, team)
     return team

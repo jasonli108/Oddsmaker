@@ -1,9 +1,5 @@
 """Market, team and user operations. Routers call these and nothing else.
 
-Functions marked TODO(market) still return sample data. Replace each body with real queries
-against Tiger Data (see app/db.py) without changing its signature or return type, and the
-routers and the frontend keep working.
-
 Functions return None when the thing asked for does not exist; the router turns that into a 404.
 Raise MarketError for a request that is understood but not allowed; the router turns that into a 400.
 
@@ -18,7 +14,7 @@ from datetime import datetime
 
 from psycopg import AsyncConnection
 
-from app import db, sample_data
+from app import db
 from app.config import get_settings
 from app.market import pricing
 from app.schemas import (
@@ -31,10 +27,12 @@ from app.schemas import (
     MarketSummary,
     MarketTeam,
     MarketTotals,
+    PricePoint,
     ResolveResult,
     ScoutFeedItem,
     Team,
     TeamCreate,
+    TeamSeries,
     User,
 )
 
@@ -59,14 +57,27 @@ async def _fetchall(conn: AsyncConnection, sql: str, params: tuple = ()) -> list
     return await (await conn.execute(sql, params)).fetchall()
 
 
-async def _lock_positions(conn: AsyncConnection, market_id: str) -> dict[str, float]:
-    """Lock a market's positions rows until the transaction ends and return team_id -> weight."""
+async def _lock_positions(conn: AsyncConnection, market_id: str) -> dict[str, dict[str, float]]:
+    """Lock a market's positions rows until the transaction ends. Returns team_id -> {seed, staked}."""
     rows = await _fetchall(
         conn,
-        "SELECT team_id, seed + staked AS weight FROM positions WHERE market_id = %s ORDER BY team_id FOR UPDATE",
+        "SELECT team_id, seed, staked FROM positions WHERE market_id = %s ORDER BY team_id FOR UPDATE",
         (market_id,),
     )
-    return {r["team_id"]: float(r["weight"]) for r in rows}
+    return {r["team_id"]: {"seed": float(r["seed"]), "staked": float(r["staked"])} for r in rows}
+
+
+def _weights(positions: dict[str, dict[str, float]]) -> dict[str, float]:
+    return {team_id: p["seed"] + p["staked"] for team_id, p in positions.items()}
+
+
+async def _clock(conn: AsyncConnection) -> datetime:
+    """The time right now, for bets and ticks written under the positions lock.
+
+    Not now(): that is the transaction's start, which can be earlier than a change that got
+    the lock first. The clock read after the lock keeps bets and ticks in their true order.
+    """
+    return (await _fetchone(conn, "SELECT clock_timestamp() AS at"))["at"]
 
 
 async def _write_ticks(
@@ -99,12 +110,40 @@ async def get_team(team_id: str) -> Team | None:
     return Team(**row) if row else None
 
 
+# Assigned in sign-up order, then reused. From the build spec's design tokens.
+TEAM_COLORS = ["#7DB8FF", "#FFB454", "#D2B8FF", "#4FC9B0", "#F29BB7", "#C9D1D8"]
+
+
 async def create_team(body: TeamCreate) -> Team:
-    # TODO(market): in one transaction, insert the team (next colour in TEAM_COLORS by sign-up order)
-    # and a positions row with seed 0 in every market. Scout's first run then sets the seed.
-    slug = re.sub(r"[^a-z0-9]+", "-", body.name.lower()).strip("-") or uuid.uuid4().hex[:8]
-    color = sample_data.TEAM_COLORS[len(sample_data.TEAMS) % len(sample_data.TEAM_COLORS)]
-    return Team(id=slug, color=color, **body.model_dump())
+    """Save a team and enter it in every open market.
+
+    It enters with no seed, so it sits at the price floor until Scout's first report sets its odds.
+    """
+    base = re.sub(r"[^a-z0-9]+", "-", body.name.lower()).strip("-") or "team"
+    async with db.get_pool().connection() as conn:
+        async with conn.transaction():
+            if await _fetchone(conn, "SELECT 1 FROM teams WHERE lower(name) = lower(%s)", (body.name,)):
+                raise MarketError("A team with this name has already signed up.")
+            taken = {r["id"] for r in await _fetchall(conn, "SELECT id FROM teams WHERE id LIKE %s", (base + "%",))}
+            slug, n = base, 2
+            while slug in taken:
+                slug, n = f"{base}-{n}", n + 1
+            count = (await _fetchone(conn, "SELECT count(*) AS n FROM teams"))["n"]
+            row = await _fetchone(
+                conn,
+                f"INSERT INTO teams (id, name, idea, repo_url, demo_url, color) VALUES (%s, %s, %s, %s, %s, %s) "
+                f"RETURNING {_TEAM_COLUMNS}",
+                (slug, body.name, body.idea, body.repo_url, body.demo_url, TEAM_COLORS[count % len(TEAM_COLORS)]),
+            )
+            open_markets = await _fetchall(conn, "SELECT id FROM markets WHERE status = 'open' ORDER BY id")
+            for market in open_markets:
+                positions = await _lock_positions(conn, market["id"])
+                await conn.execute(
+                    "INSERT INTO positions (market_id, team_id, seed, staked) VALUES (%s, %s, 0, 0)", (market["id"], slug)
+                )
+                positions[slug] = {"seed": 0.0, "staked": 0.0}
+                await _write_ticks(conn, market["id"], _weights(positions), "scout", await _clock(conn))
+    return Team(**row)
 
 
 # ---- Markets ---------------------------------------------------------------
@@ -172,18 +211,74 @@ async def get_market(market_id: str) -> MarketDetail | None:
 
 
 async def get_history(market_id: str) -> MarketHistory | None:
-    # TODO(market): read the price_ticks_1m continuous aggregate, not raw price_ticks.
-    if market_id not in sample_data.MARKETS_BY_ID:
-        return None
-    return sample_data.market_history(market_id)
+    """Per-minute prices for the chart, from the price_ticks_1m continuous aggregate (not raw ticks)."""
+    async with db.get_pool().connection() as conn:
+        if not await _fetchone(conn, "SELECT 1 FROM markets WHERE id = %s", (market_id,)):
+            return None
+        teams = await _fetchall(
+            conn,
+            "SELECT t.id, t.name, t.color FROM positions p JOIN teams t ON t.id = p.team_id "
+            "WHERE p.market_id = %s ORDER BY t.created_at, t.name",
+            (market_id,),
+        )
+        points = await _fetchall(
+            conn, "SELECT bucket, team_id, price FROM price_ticks_1m WHERE market_id = %s ORDER BY bucket", (market_id,)
+        )
+    by_team: dict[str, list[PricePoint]] = {t["id"]: [] for t in teams}
+    for p in points:
+        if p["team_id"] in by_team:
+            by_team[p["team_id"]].append(PricePoint(time=p["bucket"], price=p["price"]))
+    return MarketHistory(
+        market_id=market_id,
+        series=[TeamSeries(team_id=t["id"], name=t["name"], color=t["color"], points=by_team[t["id"]]) for t in teams],
+    )
+
+
+# A Scout re-price shows in the feed when it moved a team by about a point or more.
+_SCOUT_MOVE_MIN = 0.00999
 
 
 async def get_feed(market_id: str, limit: int = 20) -> list[BetFeedItem | ScoutFeedItem] | None:
-    # TODO(market): the feed is a query, not a table. Latest bets UNION scout-sourced ticks that
-    # moved a team's price by a point or more, newest first.
-    if market_id not in sample_data.MARKETS_BY_ID:
-        return None
-    return sample_data.market_feed(market_id)[:limit]
+    """The latest bets and Scout moves, newest first. The feed is a query, not a table."""
+    async with db.get_pool().connection() as conn:
+        if not await _fetchone(conn, "SELECT 1 FROM markets WHERE id = %s", (market_id,)):
+            return None
+        bets = await _fetchall(
+            conn,
+            "SELECT b.id, b.created_at AS time, u.display_name, b.team_id, t.name AS team_name, t.color AS team_color, "
+            "       b.stake, b.price_at_bet AS price "
+            "FROM bets b JOIN users u ON u.id = b.user_id JOIN teams t ON t.id = b.team_id "
+            "WHERE b.market_id = %s ORDER BY b.created_at DESC LIMIT %s",
+            (market_id, limit),
+        )
+        # Each scout tick against the price just before it, whoever set that price.
+        moves = await _fetchall(
+            conn,
+            "SELECT x.time, x.team_id, t.name AS team_name, t.color AS team_color, x.prev AS price_from, x.price AS price_to "
+            "FROM (SELECT time, team_id, price, source, lag(price) OVER (PARTITION BY team_id ORDER BY time) AS prev "
+            "      FROM price_ticks WHERE market_id = %s) x "
+            "JOIN teams t ON t.id = x.team_id "
+            "WHERE x.source = 'scout' AND x.prev IS NOT NULL AND abs(x.price - x.prev) >= %s "
+            "ORDER BY x.time DESC LIMIT %s",
+            (market_id, _SCOUT_MOVE_MIN, limit),
+        )
+    items: list[BetFeedItem | ScoutFeedItem] = [
+        BetFeedItem(
+            id=str(b["id"]), time=b["time"], user_display_name=b["display_name"], team_id=b["team_id"],
+            team_name=b["team_name"], team_color=b["team_color"], stake=float(b["stake"]), price=b["price"],
+        )
+        for b in bets
+    ]
+    items += [
+        ScoutFeedItem(
+            id=f"scout-{m['team_id']}-{m['time'].timestamp()}", time=m["time"], team_id=m["team_id"],
+            team_name=m["team_name"], team_color=m["team_color"], price_from=m["price_from"], price_to=m["price_to"],
+            note="after its latest report",
+        )
+        for m in moves
+    ]
+    items.sort(key=lambda item: item.time, reverse=True)
+    return items[:limit]
 
 
 async def place_bet(body: BetCreate) -> BetReceipt | None:
@@ -192,7 +287,7 @@ async def place_bet(body: BetCreate) -> BetReceipt | None:
     async with db.get_pool().connection() as conn:
         async with conn.transaction():
             # An unknown market has no positions, so this also covers "market not found".
-            weights = await _lock_positions(conn, body.market_id)
+            weights = _weights(await _lock_positions(conn, body.market_id))
             if body.team_id not in weights:
                 return None
             # Read the status only once we hold the lock: a resolve may have just finished.
@@ -210,9 +305,7 @@ async def place_bet(body: BetCreate) -> BetReceipt | None:
 
             price = pricing.prices_from_weights(weights, get_settings().price_floor)[body.team_id]
             multiple = pricing.multiple_for(price)
-            # Not now(): that is the transaction's start, which can be earlier than a bet that
-            # got the lock first. The clock after the lock keeps bets and ticks in true order.
-            at = (await _fetchone(conn, "SELECT clock_timestamp() AS at"))["at"]
+            at = await _clock(conn)
 
             bet = await _fetchone(
                 conn,
@@ -237,31 +330,73 @@ async def place_bet(body: BetCreate) -> BetReceipt | None:
         stake=body.stake,
         price_at_bet=price,
         multiple=multiple,
-        potential_payout=round(body.stake * multiple, 2),
+        potential_payout=pricing.payout(body.stake, multiple),
         new_balance=float(balance["balance"]),
         created_at=at,
     )
 
 
 async def resolve_market(market_id: str, winner_team_id: str) -> ResolveResult | None:
-    # TODO(market): one transaction: refuse if already resolved, set status and winner, then credit
-    # stake * multiple to every bet on the winner. Losing bets pay nothing.
-    market = sample_data.MARKETS_BY_ID.get(market_id)
-    if market is None or winner_team_id not in sample_data.TEAMS_BY_ID:
-        return None
-    resolved = market.model_copy(update={"status": "resolved", "winner_team_id": winner_team_id})
-    return ResolveResult(market=resolved, bets_paid=0, total_paid=0)
+    """Close a market and pay every bet on the winner its stake times its locked multiple."""
+    async with db.get_pool().connection() as conn:
+        async with conn.transaction():
+            # The lock stops bets landing mid-payout. An unknown market has no positions.
+            if winner_team_id not in await _lock_positions(conn, market_id):
+                return None
+            market = await _fetchone(conn, "SELECT status FROM markets WHERE id = %s", (market_id,))
+            if market["status"] != "open":
+                raise MarketError("This market has already been resolved.")
+            resolved = await _fetchone(
+                conn,
+                f"UPDATE markets SET status = 'resolved', winner_team_id = %s WHERE id = %s RETURNING {_MARKET_COLUMNS}",
+                (winner_team_id, market_id),
+            )
+            # The multiple was stored when the bet was placed; it is never recomputed here.
+            wins = await _fetchall(
+                conn,
+                "SELECT user_id, stake, multiple FROM bets WHERE market_id = %s AND team_id = %s",
+                (market_id, winner_team_id),
+            )
+            owed: dict[uuid.UUID, float] = {}
+            for w in wins:
+                owed[w["user_id"]] = owed.get(w["user_id"], 0) + pricing.payout(float(w["stake"]), w["multiple"])
+            async with conn.cursor() as cur:
+                await cur.executemany(
+                    "UPDATE users SET balance = balance + %s WHERE id = %s",
+                    # Sorted so two resolves at once always lock players in the same order.
+                    [(round(amount, 2), user_id) for user_id, amount in sorted(owed.items())],
+                )
+    return ResolveResult(
+        market=MarketSummary(**resolved), bets_paid=len(wins), total_paid=round(sum(owed.values()), 2)
+    )
 
 
 async def apply_scout_odds(market_id: str, odds: dict[str, float]) -> None:
-    """The one place Scout touches the market. `odds` maps team_id -> fraction, summing to 1.
+    """The one place Scout touches the market. `odds` maps team_id -> a share; they need not sum to 1.
 
     Scout calls this for each market at the end of a run (scout.pipeline.reprice_markets).
+    The market's seed is re-split by these odds, which moves prices; stakes are untouched.
+    A team left out of `odds` gets no seed. Unknown team ids are ignored. Resolved and unknown
+    markets are left alone.
     """
-    # TODO(market): one transaction, with the same positions lock as place_bet: re-split the seed
-    # with pricing.split_seed, UPDATE positions.seed, insert a price tick with source 'scout' for
-    # every team in the market.
-    return None
+    async with db.get_pool().connection() as conn:
+        async with conn.transaction():
+            positions = await _lock_positions(conn, market_id)
+            market = await _fetchone(conn, "SELECT status FROM markets WHERE id = %s", (market_id,))
+            if not positions or market["status"] != "open":
+                return
+            seeds = pricing.split_seed(
+                {team_id: max(0.0, float(odds.get(team_id, 0))) for team_id in positions},
+                get_settings().seed_per_market,
+            )
+            async with conn.cursor() as cur:
+                await cur.executemany(
+                    "UPDATE positions SET seed = %s WHERE market_id = %s AND team_id = %s",
+                    [(seed, market_id, team_id) for team_id, seed in seeds.items()],
+                )
+            for team_id, seed in seeds.items():
+                positions[team_id]["seed"] = seed
+            await _write_ticks(conn, market_id, _weights(positions), "scout", await _clock(conn))
 
 
 # ---- Users -----------------------------------------------------------------
@@ -290,6 +425,16 @@ async def get_user(user_id: str) -> User | None:
     return _user(row) if row else None
 
 
-async def get_leaderboard() -> list[LeaderboardEntry]:
-    # TODO(market): users ORDER BY balance DESC.
-    return sample_data.leaderboard()
+async def get_leaderboard(limit: int = 100) -> list[LeaderboardEntry]:
+    """Players by balance, richest first. Equal balances share a rank."""
+    async with db.get_pool().connection() as conn:
+        rows = await _fetchall(
+            conn,
+            "SELECT id, display_name, balance, rank() OVER (ORDER BY balance DESC) AS rank "
+            "FROM users ORDER BY balance DESC, created_at LIMIT %s",
+            (limit,),
+        )
+    return [
+        LeaderboardEntry(rank=r["rank"], user_id=str(r["id"]), display_name=r["display_name"], balance=float(r["balance"]))
+        for r in rows
+    ]
