@@ -18,8 +18,14 @@ from app.scout import pipeline
 
 log = logging.getLogger(__name__)
 
-_EVENT_COLUMNS = "slug, name, hosted_by, location, starts_at, submissions_close_at, source_url, categories"
+_EVENT_COLUMNS = (
+    "slug, name, hosted_by, location, starts_at, submissions_close_at, source_url, categories, starting_balance"
+)
 _DRAFT_FIELDS = ["name", "hosted_by", "location", "starts_at", "submissions_close_at", "categories"]
+
+
+class EventError(Exception):
+    """A change to the event that is understood but not allowed. The router turns it into a 400."""
 
 
 def market_id_for(category_name: str) -> MarketId | None:
@@ -66,7 +72,11 @@ async def get_event() -> Event | None:
 
 
 async def save_event(body: EventCreate) -> Event:
-    """Create or replace the single event row. Never creates or deletes markets."""
+    """Create or replace the single event row. Never creates or deletes markets.
+
+    The starting balance is set by the first launch and cannot change afterwards: attendees who
+    have already joined were given that amount, so changing it would be unfair to them.
+    """
     slug = re.sub(r"[^a-z0-9]+", "-", body.name.lower()).strip("-") or "event"
     values = (
         slug,
@@ -77,18 +87,28 @@ async def save_event(body: EventCreate) -> Event:
         body.submissions_close_at,
         body.source_url,
         Jsonb([c.model_dump() for c in body.categories]),
+        body.starting_balance,
     )
     async with db.get_pool().connection() as conn:
-        row = await (
-            await conn.execute(
-                f"INSERT INTO events (id, {_EVENT_COLUMNS}) VALUES (1, %s, %s, %s, %s, %s, %s, %s, %s) "
-                "ON CONFLICT (id) DO UPDATE SET slug = EXCLUDED.slug, name = EXCLUDED.name, "
-                "hosted_by = EXCLUDED.hosted_by, location = EXCLUDED.location, starts_at = EXCLUDED.starts_at, "
-                "submissions_close_at = EXCLUDED.submissions_close_at, source_url = EXCLUDED.source_url, "
-                f"categories = EXCLUDED.categories RETURNING {_EVENT_COLUMNS}",
-                values,
-            )
-        ).fetchone()
+        async with conn.transaction():
+            current = await (
+                await conn.execute("SELECT starting_balance FROM events WHERE id = 1 FOR UPDATE")
+            ).fetchone()
+            if current and current["starting_balance"] != body.starting_balance:
+                raise EventError(
+                    f"The starting amount was set to {current['starting_balance']:,} Hackcoin at launch "
+                    "and can't be changed."
+                )
+            row = await (
+                await conn.execute(
+                    f"INSERT INTO events (id, {_EVENT_COLUMNS}) VALUES (1, %s, %s, %s, %s, %s, %s, %s, %s, %s) "
+                    "ON CONFLICT (id) DO UPDATE SET slug = EXCLUDED.slug, name = EXCLUDED.name, "
+                    "hosted_by = EXCLUDED.hosted_by, location = EXCLUDED.location, starts_at = EXCLUDED.starts_at, "
+                    "submissions_close_at = EXCLUDED.submissions_close_at, source_url = EXCLUDED.source_url, "
+                    f"categories = EXCLUDED.categories RETURNING {_EVENT_COLUMNS}",
+                    values,
+                )
+            ).fetchone()
     return _event(row)
 
 

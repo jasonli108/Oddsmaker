@@ -2,7 +2,8 @@ import { QRCodeSVG } from 'qrcode.react';
 import { useEffect, useState } from 'react';
 import { Link, Navigate } from 'react-router-dom';
 import { ApiError, api } from '../../api/client';
-import { plural } from '../../format';
+import { coin, plural } from '../../format';
+import { STARTING_BALANCE } from '../../config';
 import { publicOrigin } from '../../host';
 import { usePolling } from '../../hooks/usePolling';
 
@@ -111,7 +112,9 @@ export default function SetupLivePage() {
           <div style={{ width: '100%', maxWidth: 240, background: '#ECEFF1', borderRadius: 12, padding: 14 }}>
             <QRCodeSVG value={link} role="img" aria-label={`QR code for ${link}`} bgColor="#ECEFF1" fgColor="#0F1214" style={{ display: 'block', width: '100%', height: 'auto' }} />
           </div>
-          <div style={{ fontSize: 15, fontWeight: 500, textAlign: 'center' }}>Scan to join and get 1,000 Hackcoin</div>
+          <div style={{ fontSize: 15, fontWeight: 500, textAlign: 'center' }}>
+            Scan to join and get {coin(event.data.starting_balance ?? STARTING_BALANCE)} Hackcoin
+          </div>
           <div className="dim small" style={{ textAlign: 'center' }}>Put this on the big screen at kickoff.</div>
         </div>
       </div>

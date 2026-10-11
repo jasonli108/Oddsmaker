@@ -4,10 +4,12 @@ import { ApiError, api } from '../../api/client';
 import type { EventCategory, EventDraft } from '../../api/types';
 import { hostPassword } from '../../host';
 import { useEvent } from '../../hooks/useEvent';
-import { plural } from '../../format';
+import { STARTING_BALANCE } from '../../config';
+import { coin, plural } from '../../format';
 import { clearDraft, loadDraft } from './draft';
 
 const AMBER = 'var(--amber)';
+const MAX_STARTING_BALANCE = 1_000_000; // the backend's limit
 
 /** An ISO time as the value a datetime-local input wants, in the host's own time zone. */
 function toLocalInput(iso: string | null | undefined): string {
@@ -38,7 +40,7 @@ export default function SetupReviewPage() {
 
 function ReviewForm({ draft }: { draft: EventDraft }) {
   const navigate = useNavigate();
-  const { refreshEvent } = useEvent();
+  const { event, ready, refreshEvent } = useEvent();
 
   const [name, setName] = useState(draft.name);
   const [hostedBy, setHostedBy] = useState(draft.hosted_by ?? '');
@@ -46,6 +48,8 @@ function ReviewForm({ draft }: { draft: EventDraft }) {
   const [startsAt, setStartsAt] = useState(toLocalInput(draft.starts_at));
   const [closesAt, setClosesAt] = useState(toLocalInput(draft.submissions_close_at));
   const [categories, setCategories] = useState<EventCategory[]>(draft.categories ?? []);
+  const [startingText, setStartingText] = useState(String(STARTING_BALANCE));
+  const [startingError, setStartingError] = useState<string | null>(null);
   const [password, setPassword] = useState(hostPassword.get() ?? '');
   const [busy, setBusy] = useState(false);
   const [nameError, setNameError] = useState<string | null>(null);
@@ -58,6 +62,10 @@ function ReviewForm({ draft }: { draft: EventDraft }) {
   const notFound = (value: string) => !byHand && !value;
   const marketCount = categories.filter((c) => c.market_id).length;
 
+  // Attendees who have joined were given the amount set at launch, so it is fixed from then on.
+  const launched = !!event;
+  const startingBalance = launched ? (event.starting_balance ?? STARTING_BALANCE) : Number(startingText);
+
   const setCategory = (index: number, change: Partial<EventCategory>) =>
     setCategories((list) => list.map((c, i) => (i === index ? { ...c, ...change } : c)));
 
@@ -65,9 +73,14 @@ function ReviewForm({ draft }: { draft: EventDraft }) {
     e.preventDefault();
     setNameError(null);
     setPasswordError(null);
+    setStartingError(null);
     setFormError(null);
     if (!name.trim()) {
       setNameError('Your event needs a name.');
+      return;
+    }
+    if (!Number.isInteger(startingBalance) || startingBalance < 1 || startingBalance > MAX_STARTING_BALANCE) {
+      setStartingError(`Enter a whole number from 1 to ${coin(MAX_STARTING_BALANCE)}.`);
       return;
     }
     if (!password) {
@@ -87,6 +100,7 @@ function ReviewForm({ draft }: { draft: EventDraft }) {
           categories: categories
             .filter((c) => c.name.trim())
             .map((c) => ({ name: c.name.trim(), prize: c.prize?.trim() || null, market_id: c.market_id ?? null })),
+          starting_balance: startingBalance,
         },
         password,
       );
@@ -171,7 +185,35 @@ function ReviewForm({ draft }: { draft: EventDraft }) {
 
       <Section title="Game settings">
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 16 }}>
-          <Setting label="Hackcoin each attendee starts with" value="1,000" mono />
+          {!ready ? (
+            <Setting label="Hackcoin each attendee starts with" value="…" mono />
+          ) : launched ? (
+            <Setting
+              label="Hackcoin each attendee starts with"
+              value={coin(startingBalance)}
+              note="Set at launch. It can't be changed now."
+              mono
+            />
+          ) : (
+            <label className="stack" style={{ gap: 6 }}>
+              <span className="dim small">Hackcoin each attendee starts with</span>
+              <input
+                className="input mono"
+                inputMode="numeric"
+                aria-invalid={!!startingError}
+                value={startingText}
+                onChange={(e) => setStartingText(e.target.value.replace(/[^0-9]/g, ''))}
+              />
+              {startingError ? (
+                <span className="error" role="alert">{startingError}</span>
+              ) : (
+                <span className="dim small">Choose carefully: it can't be changed after launch.</span>
+              )}
+            </label>
+          )}
+          {/* TODO(scout): make this adjustable once the Scout timer exists. Store the interval on the
+              event, as starting_balance is, and have app/scout/scheduler.py read it instead of
+              SCOUT_INTERVAL_MINUTES. Blocked until the pipeline that the timer runs is written. */}
           <Setting label="Scout refreshes its reports" value="Every 30 minutes" />
           <Setting label="Betting closes" value="When you pick each winner" />
         </div>
@@ -213,7 +255,8 @@ function ReviewForm({ draft }: { draft: EventDraft }) {
           <button
             className="btn primary"
             type="submit"
-            disabled={busy}
+            // Not until we know whether an event already exists: that decides the starting amount.
+            disabled={busy || !ready}
             style={{ minHeight: 52, padding: '0 26px', borderRadius: 10, fontSize: 17 }}
           >
             {busy ? 'Launching…' : 'Launch markets'}
@@ -258,11 +301,12 @@ function Field({ label, error, notFound, children }: FieldProps) {
   );
 }
 
-function Setting({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+function Setting({ label, value, note, mono }: { label: string; value: string; note?: string; mono?: boolean }) {
   return (
     <div className="stack" style={{ gap: 6 }}>
       <div className="dim small">{label}</div>
       <div className={mono ? 'mono' : undefined} style={{ fontSize: 16 }}>{value}</div>
+      {note && <div className="dim small">{note}</div>}
     </div>
   );
 }

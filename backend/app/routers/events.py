@@ -28,7 +28,10 @@ async def get_event():
 
 @router.put("/event", response_model=Event, dependencies=[Depends(require_host)])
 async def save_event(body: EventCreate):
-    return await service.save_event(body)
+    try:
+        return await service.save_event(body)
+    except service.EventError as e:
+        raise HTTPException(400, str(e))
 
 
 @router.get("/host/summary", response_model=HostSummary, dependencies=[Depends(require_host)])

@@ -130,6 +130,55 @@ def test_saving_the_event_never_touches_markets(client, db):
     assert before == after == (4, 24)
 
 
+# ---- Starting balance: chosen at launch, fixed afterwards -------------------
+
+
+def join(client, name="Maya") -> dict:
+    return client.post("/api/users", json={"display_name": name}).json()
+
+
+def test_starting_balance_defaults_to_1000(client):
+    assert join(client, "Before launch")["balance"] == 1000
+    saved = client.put("/api/event", json=EVENT, headers=HOST).json()
+    assert saved["starting_balance"] == 1000
+    assert join(client, "After launch")["balance"] == 1000
+
+
+def test_the_host_chooses_the_starting_balance_at_launch(client):
+    saved = client.put("/api/event", json={**EVENT, "starting_balance": 500}, headers=HOST).json()
+    assert saved["starting_balance"] == 500
+    assert client.get("/api/event").json()["starting_balance"] == 500
+    user = join(client)
+    assert user["balance"] == 500
+    # The whole amount is theirs to stake, and no more than that.
+    bet = {"user_id": user["id"], "market_id": "overall", "team_id": "orbit"}
+    assert client.post("/api/bets", json={**bet, "stake": 501}).status_code == 400
+    assert client.post("/api/bets", json={**bet, "stake": 500}).json()["new_balance"] == 0
+
+
+def test_starting_balance_cannot_change_after_launch(client):
+    client.put("/api/event", json={**EVENT, "starting_balance": 500}, headers=HOST)
+    changed = client.put("/api/event", json={**EVENT, "starting_balance": 2000}, headers=HOST)
+    assert changed.status_code == 400 and "can't be changed" in changed.json()["detail"]
+    # Leaving it out means the default of 1,000, which is also a change.
+    assert client.put("/api/event", json=EVENT, headers=HOST).status_code == 400
+    assert client.get("/api/event").json()["starting_balance"] == 500
+    assert join(client)["balance"] == 500
+
+
+def test_other_details_can_still_be_edited_after_launch(client):
+    client.put("/api/event", json={**EVENT, "starting_balance": 500}, headers=HOST)
+    renamed = client.put("/api/event", json={**EVENT, "name": "Renamed Hack", "starting_balance": 500}, headers=HOST)
+    assert renamed.status_code == 200
+    assert (renamed.json()["name"], renamed.json()["starting_balance"]) == ("Renamed Hack", 500)
+
+
+@pytest.mark.parametrize("amount", [0, -100, 1_000_001, 12.5, "lots"])
+def test_starting_balance_must_be_a_sensible_whole_number(client, amount):
+    assert client.put("/api/event", json={**EVENT, "starting_balance": amount}, headers=HOST).status_code == 422
+    assert client.get("/api/event").status_code == 404
+
+
 # ---- The host page ---------------------------------------------------------
 
 

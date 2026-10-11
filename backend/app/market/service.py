@@ -407,10 +407,13 @@ def _user(row: dict) -> User:
 
 
 async def create_user(display_name: str) -> User:
+    """A new player, with the starting balance the host chose at launch (or the default before any launch)."""
     async with db.get_pool().connection() as conn:
         row = await _fetchone(
             conn,
-            "INSERT INTO users (display_name, balance) VALUES (%s, %s) RETURNING id, display_name, balance",
+            "INSERT INTO users (display_name, balance) "
+            "VALUES (%s, coalesce((SELECT starting_balance FROM events WHERE id = 1), %s)) "
+            "RETURNING id, display_name, balance",
             (display_name, get_settings().starting_balance),
         )
     return _user(row)

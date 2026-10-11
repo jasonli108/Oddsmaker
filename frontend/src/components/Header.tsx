@@ -74,6 +74,7 @@ function Countdown() {
 
 function JoinForm() {
   const { join } = useUser();
+  const { startingBalance } = useEvent();
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -110,7 +111,7 @@ function JoinForm() {
           onChange={(e) => setName(e.target.value)}
         />
         <button className="btn primary" type="submit" disabled={busy}>
-          {busy ? 'Setting up…' : 'Get 1,000 Hackcoin'}
+          {busy ? 'Setting up…' : `Get ${coin(startingBalance)} Hackcoin`}
         </button>
       </div>
       {error && <div className="error" role="alert">{error}</div>}

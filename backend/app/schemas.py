@@ -267,6 +267,8 @@ class EventCreate(BaseModel):
     submissions_close_at: datetime | None = None
     source_url: str | None = None
     categories: list[EventCategory] = []
+    # Hackcoin each attendee starts with. Chosen at the first launch and fixed from then on.
+    starting_balance: int = Field(default=1000, ge=1, le=1_000_000)
 
 
 class Event(EventCreate):
