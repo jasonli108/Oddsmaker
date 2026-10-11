@@ -39,14 +39,15 @@ Unfinished work is marked `TODO(market)`, `TODO(frontend)` or `TODO(scout)`.
 ## Backend rules
 
 - Routers are thin: they call one service function and map the result to HTTP. A service function returns `None` for "not found" (router sends 404) and raises `MarketError` for a broken market rule (router sends 400).
-- Endpoints currently return mocks from `app/sample_data.py`. Replace a mock by rewriting the service function body and keeping its signature and return type. Delete `sample_data.py` once nothing imports it.
+- The market is real. Only Scout reports still come from `app/sample_data.py`, which also supplies the seed script and the test fixtures with their sample teams. Replace a mock by rewriting the function body and keeping its signature and return type.
 - Only `app/market/service.py` writes to `positions`, `price_ticks`, `bets` and user balances. Scout moves prices by calling `market.service.apply_scout_odds`, never by writing those tables itself.
 - A bet is one transaction with the market's `positions` rows locked (`SELECT ... FOR UPDATE`): check balance, read price, insert bet, deduct balance, add to `staked`, insert a tick for every team in the market. Resolution and `apply_scout_odds` take the same lock.
-- A bet's `multiple` is stored at bet time and never recomputed.
+- A bet's `multiple` is stored at bet time and never recomputed. The receipt and the resolve step both use `pricing.payout`, so the amount promised is the amount paid.
 - `GET /markets/:id/history` reads the `price_ticks_1m` continuous aggregate, not raw `price_ticks`. That is the Tiger Data prize feature.
 - Market rules as pure functions live in `app/market/pricing.py`; tunable numbers (starting balance, seed size, price floor) live in `app/config.py`, not inline.
 - `db/schema.sql` must stay idempotent (`IF NOT EXISTS`); it is applied with `make db-init` to both the local database and Tiger Cloud.
-- Once service functions use the database, `tests/test_api.py` needs `make db` running.
+- Tests run against their own local `oddsmaker_test` database (see `tests/conftest.py`), never `DATABASE_URL`, and refuse any host but localhost. They need the Docker database up; without it the database tests are skipped. Never point tests at Tiger Cloud.
+- Anything that changes a market's weights takes `_lock_positions` first, and locks a `users` row only after it. Use `clock_timestamp()` after the lock for bet and tick times, not `now()`.
 
 ## Scout rules
 
