@@ -69,15 +69,17 @@ function ReportBody({ report }: { report: ScoutReport }) {
         <div style={{ fontSize: 17 }}>{report.read}</div>
       </div>
 
-      {sections.map((s) => (
-        <div key={s.title} className="card">
-          <div className="row between">
-            <h2>{s.title}</h2>
-            <span className="badge-amber">{s.label}</span>
+      <div className="quad">
+        {sections.map((s) => (
+          <div key={s.title} className="card">
+            <div className="row between" style={{ flexWrap: 'nowrap' }}>
+              <h2>{s.title}</h2>
+              <span className="badge-amber" style={{ flex: 'none' }}>{s.label}</span>
+            </div>
+            <div className="soft" style={{ marginTop: 8, fontSize: 14 }}>{s.finding}</div>
           </div>
-          <div style={{ marginTop: 8 }}>{s.finding}</div>
-        </div>
-      ))}
+        ))}
+      </div>
 
       {report.originality.similar && report.originality.similar.length > 0 && (
         <div className="card">

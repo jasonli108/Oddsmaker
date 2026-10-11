@@ -1,7 +1,7 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { NavLink } from 'react-router-dom';
-import { EVENT_NAME } from '../config';
-import { coin } from '../format';
+import { EVENT_NAME, SUBMISSIONS_CLOSE } from '../config';
+import { coin, countdown } from '../format';
 import { useUser } from '../hooks/useUser';
 
 const TABS = [
@@ -23,16 +23,19 @@ export default function Header() {
           {/* The submission checklist requires this on every screen. */}
           <div className="badge-amber">Play money only</div>
         </div>
-        {user ? (
-          <div className="card small dim" style={{ padding: '8px 14px', borderRadius: 'var(--radius-control)' }}>
-            {user.display_name}'s balance{' '}
-            <span className="mono" style={{ color: 'var(--text)', fontWeight: 500, marginLeft: 6 }}>
-              {coin(user.balance)} Hackcoin
-            </span>
-          </div>
-        ) : (
-          <JoinForm />
-        )}
+        <div className="row" style={{ gap: 18 }}>
+          <Countdown />
+          {user ? (
+            <div className="card small dim" style={{ padding: '8px 14px', borderRadius: 'var(--radius-control)' }}>
+              {user.display_name}'s balance{' '}
+              <span className="mono" style={{ color: 'var(--text)', fontWeight: 500, marginLeft: 6 }}>
+                {coin(user.balance)} Hackcoin
+              </span>
+            </div>
+          ) : (
+            <JoinForm />
+          )}
+        </div>
       </div>
       <nav className="container tabs">
         {TABS.map((tab) => (
@@ -42,6 +45,24 @@ export default function Header() {
         ))}
       </nav>
     </header>
+  );
+}
+
+function Countdown() {
+  const [now, setNow] = useState(Date.now());
+
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const left = SUBMISSIONS_CLOSE.getTime() - now;
+  if (left <= 0) return <div className="dim small">Submissions closed</div>;
+  return (
+    <div className="dim small">
+      Submissions close in{' '}
+      <span className="mono" style={{ color: 'var(--text)' }}>{countdown(left)}</span>
+    </div>
   );
 }
 

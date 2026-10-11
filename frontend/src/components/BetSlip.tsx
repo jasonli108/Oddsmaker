@@ -4,6 +4,7 @@ import type { BetReceipt, MarketDetail, MarketTeam } from '../api/types';
 import { STAKE_PRESETS } from '../config';
 import { coin, multiple, pct } from '../format';
 import { useUser } from '../hooks/useUser';
+import Stat from './Stat';
 
 type Props = {
   market: MarketDetail;
@@ -21,8 +22,7 @@ export default function BetSlip({ market, team, onPlaced }: Props) {
 
   const balance = user?.balance ?? 0;
   const stake = Math.max(0, Math.round(Number(amountText) || 0));
-  const closed = market.status !== 'open';
-  const canBet = !!user && !closed && stake > 0 && stake <= balance && !busy;
+  const canBet = !!user && stake > 0 && stake <= balance && !busy;
 
   async function placeBet() {
     if (!user) return;
@@ -86,7 +86,6 @@ export default function BetSlip({ market, team, onPlaced }: Props) {
       </button>
 
       {!user && <div className="dim small">Pick a display name at the top to get your 1,000 Hackcoin.</div>}
-      {closed && <div className="dim small">This market has been resolved.</div>}
       {user && stake > balance && <div className="error">That's more than your balance.</div>}
       {error && <div className="error">{error}</div>}
       {receipt && (
@@ -97,15 +96,6 @@ export default function BetSlip({ market, team, onPlaced }: Props) {
       <div className="dim" style={{ fontSize: 12 }}>
         Fills instantly from the pool. Your bet moves the price for the next person.
       </div>
-    </div>
-  );
-}
-
-function Stat({ label, value }: { label: string; value: string }) {
-  return (
-    <div style={{ flex: 1, background: 'var(--bg)', borderRadius: 8, padding: '10px 12px' }}>
-      <div className="dim" style={{ fontSize: 12 }}>{label}</div>
-      <div className="mono" style={{ fontSize: 20, fontWeight: 500 }}>{value}</div>
     </div>
   );
 }

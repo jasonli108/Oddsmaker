@@ -13,5 +13,12 @@ export function ago(iso: string, now = Date.now()): string {
   return `${Math.floor(s / 3600)}h ago`;
 }
 
-export const clock = (iso: string) =>
+/** Milliseconds as H:MM:SS, e.g. 11:42:08. */
+export function countdown(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  const two = (n: number) => String(n).padStart(2, '0');
+  return `${Math.floor(total / 3600)}:${two(Math.floor((total % 3600) / 60))}:${two(total % 60)}`;
+}
+
+export const clock =(iso: string) =>
   new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });

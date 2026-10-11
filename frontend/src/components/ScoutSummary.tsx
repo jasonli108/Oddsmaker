@@ -3,6 +3,7 @@ import { api } from '../api/client';
 import type { MarketTeam } from '../api/types';
 import { clock, pct } from '../format';
 import { usePolling } from '../hooks/usePolling';
+import Stat from './Stat';
 
 /** The Scout panel under the bet slip: Scout's odds against the market price for the selected team. */
 export default function ScoutSummary({ team }: { team: MarketTeam }) {
@@ -17,7 +18,7 @@ export default function ScoutSummary({ team }: { team: MarketTeam }) {
 
   return (
     <div className="card stack" style={{ padding: 20 }}>
-      <div className="row between" style={{ flexWrap: 'nowrap' }}>
+      <div className="row between" style={{ flexWrap: 'nowrap', alignItems: 'baseline' }}>
         <h2>Scout report · {team.name}</h2>
         {data?.created_at && (
           <div className="dim" style={{ fontSize: 12, flex: 'none' }}>
@@ -26,15 +27,18 @@ export default function ScoutSummary({ team }: { team: MarketTeam }) {
           </div>
         )}
       </div>
-      <div className="small" style={{ color: 'var(--amber)', fontSize: 14 }}>
-        Scout {pct(team.scout_odds)} · Market {pct(team.price)}. {gap}
+      <div className="row" style={{ gap: 10, flexWrap: 'nowrap' }}>
+        <Stat label="Scout's odds" value={pct(team.scout_odds)} />
+        <Stat label="Market price" value={pct(team.price)} />
       </div>
+      <div style={{ color: 'var(--amber)', fontSize: 14 }}>{gap}</div>
       {report ? (
+        // The short label goes here; the full finding is on the Scout reports tab.
         <div style={{ fontSize: 14 }}>
-          <Row label="Originality" value={report.originality.finding} />
-          <Row label="Build progress" value={report.build.finding} />
-          <Row label="Demo link" value={report.demo.finding} />
-          <Row label="Prize fit" value={report.prize_fit.finding} />
+          <Row label="Originality" value={report.originality.label} />
+          <Row label="Build progress" value={report.build.label} />
+          <Row label="Demo link" value={report.demo.label} />
+          <Row label="Prize fit" value={report.prize_fit.label} />
         </div>
       ) : (
         <div className="dim small">{data ? 'Scout has not reported on this team yet.' : 'Loading…'}</div>
