@@ -26,7 +26,9 @@ def test_scores_are_clamped_and_rounded():
 def test_links_come_from_nimble_and_the_team_not_the_model():
     report = gemini.build_report(TEAM, reply(), SIMILAR)
     assert report.team_id == "orbit"
-    assert [s.url for s in report.originality.similar] == ["https://devpost.com/software/bet-3"]
+    assert [(s.url, s.description) for s in report.originality.similar] == [
+        ("https://devpost.com/software/bet-3", "Betting on hackathons.")
+    ]
     assert [(s.kind, s.url) for s in report.sources] == [
         ("repo", "https://github.com/a/orbit"),
         ("demo", "https://orbit.vercel.app"),

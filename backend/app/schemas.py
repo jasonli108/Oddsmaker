@@ -172,6 +172,7 @@ class BetReceipt(BaseModel):
 class SimilarProject(BaseModel):
     title: str
     url: str
+    description: str = ""  # Nimble's one-line summary; kept so later refreshes can reuse it without searching
 
 
 class ReportSection(BaseModel):

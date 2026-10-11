@@ -139,7 +139,10 @@ uv pip install --python backend/.venv/bin/python -r backend/requirements.txt --o
 
 ## What's left
 
-- `pipeline.py`: cache the brief and each team's searches (a JSON file or one extra table; not decided yet), save reports, mark them stale on failure, and hand odds to `market.service.apply_scout_odds` (stream A).
+- `pipeline.py`: save reports, mark them stale on failure, and hand odds to `market.service.apply_scout_odds` (stream A). Caching is decided, with no new table:
+  - A team's similar projects are searched once and saved in its report (`reports.body.originality.similar`, which now includes each project's one-line `description`). Later refreshes reuse them from the latest report; if no report was saved yet, the next refresh searches again.
+  - The "what wins here" brief is kept in memory. A server restart rebuilds it for one Nimble search, one extract and one Gemini call.
+- `pipeline.extract_event(url) -> EventDraft`: the host flow (`app/events/service.py`) calls this to read the event page, and serves sample data until it exists.
 - `get_team_report`: fill `OddsPoint.note` from each run's `change_note`.
 - `scheduler.py`: the 30-minute refresh.
 - A short write-up for the Nimble, Gemini and Tiger Data judges, once a real report exists.

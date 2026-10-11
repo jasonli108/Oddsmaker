@@ -182,7 +182,7 @@ def build_report(team: Team, reply: GeminiReply, similar: list[SearchResult]) ->
         read=reply.read,
         originality=OriginalitySection(
             **reply.originality.model_dump(),
-            similar=[SimilarProject(title=r.title, url=r.url) for r in similar],
+            similar=[SimilarProject(title=r.title, url=r.url, description=r.description) for r in similar],
         ),
         build=reply.build,
         demo=reply.demo,
