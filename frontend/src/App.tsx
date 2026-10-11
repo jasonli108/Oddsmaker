@@ -8,6 +8,7 @@ import LeaderboardPage from './pages/LeaderboardPage';
 import MarketsPage from './pages/MarketsPage';
 import ReportsPage from './pages/ReportsPage';
 import SignUpPage from './pages/SignUpPage';
+import SummaryPage from './pages/SummaryPage';
 import SetupLayout from './pages/setup/SetupLayout';
 import SetupLinkPage from './pages/setup/SetupLinkPage';
 import SetupLivePage from './pages/setup/SetupLivePage';
@@ -32,12 +33,15 @@ export default function App() {
         <Route path="reports/:teamId" element={<ReportsPage />} />
         <Route path="leaderboard" element={<LeaderboardPage />} />
         <Route path="signup" element={<SignUpPage />} />
+        <Route path="summary" element={<SummaryPage />} />
+        <Route path="summary/:userId" element={<SummaryPage />} />
       </Route>
 
       {/* Where the attendee pages lived before they moved under /e/:slug. */}
       <Route path="/reports/*" element={<MovedToAttendeeApp />} />
       <Route path="/leaderboard" element={<MovedToAttendeeApp />} />
       <Route path="/signup" element={<MovedToAttendeeApp />} />
+      <Route path="/summary/*" element={<MovedToAttendeeApp />} />
 
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

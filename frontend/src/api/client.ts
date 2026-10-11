@@ -15,6 +15,8 @@ import type {
   TeamCreate,
   TeamReport,
   User,
+  UserBet,
+  UserSummary,
 } from './types';
 
 const BASE = `${import.meta.env.VITE_API_BASE_URL ?? ''}/api`;
@@ -84,6 +86,8 @@ export const api = {
 
   createUser: (displayName: string) => post<User>('/users', { display_name: displayName }),
   getUser: (id: string) => request<User>(`/users/${id}`),
+  getUserSummary: (id: string) => request<UserSummary>(`/users/${id}/summary`),
+  getUserBets: (id: string) => request<UserBet[]>(`/users/${id}/bets`),
   getLeaderboard: () => request<LeaderboardEntry[]>('/leaderboard'),
 
   getEvent: () => request<EventInfo>('/event'),

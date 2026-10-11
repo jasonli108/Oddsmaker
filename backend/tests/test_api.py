@@ -69,6 +69,48 @@ def test_unknown_user_is_404(client, user_id):
     assert client.get(f"/api/users/{user_id}").status_code == 404
 
 
+def test_user_summary_empty(client):
+    user = join(client, "Alice")
+    res = client.get(f"/api/users/{user['id']}/summary")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["user"]["display_name"] == "Alice"
+    assert data["user"]["balance"] == 1000
+    assert data["total_staked"] == 0
+    assert data["bet_count"] == 0
+    assert data["bets"] == []
+    assert data["teams"] == []
+
+
+def test_user_summary_with_bets_and_teams(client):
+    user = join(client, "Bob")
+    team_res = client.post(
+        "/api/teams",
+        json={"name": "Bob Team", "idea": "An AI gadget", "creator_user_id": user["id"]},
+    )
+    assert team_res.status_code == 201
+
+    bet_res = bet(client, user["id"], "orbit", 150)
+    assert bet_res.status_code == 200
+
+    summary_res = client.get(f"/api/users/{user['id']}/summary")
+    assert summary_res.status_code == 200
+    summary = summary_res.json()
+    assert summary["bet_count"] == 1
+    assert summary["open_bets_count"] == 1
+    assert summary["total_staked"] == 150
+    assert len(summary["bets"]) == 1
+    assert summary["bets"][0]["team_id"] == "orbit"
+    assert summary["bets"][0]["stake"] == 150
+    assert summary["bets"][0]["status"] == "open"
+    assert len(summary["teams"]) == 1
+    assert summary["teams"][0]["name"] == "Bob Team"
+
+    bets_res = client.get(f"/api/users/{user['id']}/bets")
+    assert bets_res.status_code == 200
+    assert len(bets_res.json()) == 1
+
+
 # ---- Placing a bet: the spec's worked example ------------------------------
 
 

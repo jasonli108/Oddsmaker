@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { ApiError, api } from '../api/client';
 import type { Team } from '../api/types';
 import { useAttendeePath } from '../hooks/useAttendeePath';
+import { useUser } from '../hooks/useUser';
 
 const NAME_MAX = 60;
 const IDEA_MAX = 200;
@@ -21,6 +22,7 @@ function isHttpUrl(value: string): boolean {
 
 /** Team sign-up: name, one-line idea, repo link, demo link. No design exists for this screen. */
 export default function SignUpPage() {
+  const { user } = useUser();
   const [form, setForm] = useState<Record<Field, string>>({ name: '', idea: '', repo_url: '', demo_url: '' });
   const [errors, setErrors] = useState<Errors>({});
   const [formError, setFormError] = useState<string | null>(null);
@@ -51,14 +53,20 @@ export default function SignUpPage() {
 
     setBusy(true);
     try {
-      setCreated(
-        await api.createTeam({
-          name: form.name.trim(),
-          idea: form.idea.trim(),
-          repo_url: form.repo_url.trim() || null,
-          demo_url: form.demo_url.trim() || null,
-        }),
-      );
+      const res = await api.createTeam({
+        name: form.name.trim(),
+        idea: form.idea.trim(),
+        repo_url: form.repo_url.trim() || null,
+        demo_url: form.demo_url.trim() || null,
+        creator_user_id: user?.id ?? null,
+      });
+      try {
+        const stored = JSON.parse(localStorage.getItem('oddsmaker.myTeams') || '[]');
+        if (!stored.includes(res.id)) {
+          localStorage.setItem('oddsmaker.myTeams', JSON.stringify([...stored, res.id]));
+        }
+      } catch {}
+      setCreated(res);
     } catch (err) {
       // Show the server's complaint under the field it is about, or under the form if it names none of ours.
       const fromServer: Errors = {};
@@ -78,9 +86,12 @@ export default function SignUpPage() {
           Scout is writing its first report now. Your team shows up in every market as soon as it's done, usually within a
           minute.
         </div>
-        <div className="row">
+        <div className="row" style={{ gap: 10 }}>
           <Link className="btn primary" to={path(`/reports/${created.id}`)} style={{ display: 'grid', placeItems: 'center' }}>
             See your Scout report
+          </Link>
+          <Link className="btn" to={path('/summary')} style={{ display: 'grid', placeItems: 'center' }}>
+            View in your summary
           </Link>
           <Link className="btn" to={path()} style={{ display: 'grid', placeItems: 'center' }}>
             Go to the markets

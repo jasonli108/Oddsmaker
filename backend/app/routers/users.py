@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException
 
 from app.market import service
-from app.schemas import LeaderboardEntry, User, UserCreate
+from app.schemas import LeaderboardEntry, User, UserCreate, UserBet, UserSummary
 
 router = APIRouter(tags=["users"])
 
@@ -17,6 +17,22 @@ async def get_user(user_id: str):
     if user is None:
         raise HTTPException(404, "User not found")
     return user
+
+
+@router.get("/users/{user_id}/summary", response_model=UserSummary)
+async def get_user_summary(user_id: str):
+    summary = await service.get_user_summary(user_id)
+    if summary is None:
+        raise HTTPException(404, "User not found")
+    return summary
+
+
+@router.get("/users/{user_id}/bets", response_model=list[UserBet])
+async def get_user_bets(user_id: str):
+    bets = await service.get_user_bets(user_id)
+    if bets is None:
+        raise HTTPException(404, "User not found")
+    return bets
 
 
 @router.get("/leaderboard", response_model=list[LeaderboardEntry])

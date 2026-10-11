@@ -173,6 +173,19 @@ def test_other_details_can_still_be_edited_after_launch(client):
     assert (renamed.json()["name"], renamed.json()["starting_balance"]) == ("Renamed Hack", 500)
 
 
+def test_net_profit_does_not_assume_a_1000_start(client):
+    client.put("/api/event", json={**EVENT, "starting_balance": 500}, headers=HOST)
+    user = join(client)
+    summary = lambda: client.get(f"/api/users/{user['id']}/summary").json()  # noqa: E731
+    assert summary()["net_profit"] == 0  # not -500
+    bet = client.post("/api/bets", json={"user_id": user["id"], "market_id": "overall", "team_id": "orbit", "stake": 100}).json()
+    assert summary()["net_profit"] == -100
+    client.post("/api/markets/overall/resolve", json={"winner_team_id": "orbit"}, headers=HOST)
+    after = summary()
+    assert after["net_profit"] == pytest.approx(bet["potential_payout"] - 100)
+    assert after["user"]["balance"] == pytest.approx(500 + after["net_profit"])
+
+
 @pytest.mark.parametrize("amount", [0, -100, 1_000_001, 12.5, "lots"])
 def test_starting_balance_must_be_a_sensible_whole_number(client, amount):
     assert client.put("/api/event", json={**EVENT, "starting_balance": amount}, headers=HOST).status_code == 422

@@ -34,6 +34,8 @@ from app.schemas import (
     TeamCreate,
     TeamSeries,
     User,
+    UserBet,
+    UserSummary,
 )
 
 
@@ -95,19 +97,31 @@ async def _write_ticks(
 # ---- Teams -----------------------------------------------------------------
 
 
-_TEAM_COLUMNS = "id, name, idea, repo_url, demo_url, color"
+_TEAM_COLUMNS = "id, name, idea, repo_url, demo_url, color, creator_user_id"
+
+
+def _team(row: dict) -> Team:
+    return Team(
+        id=row["id"],
+        name=row["name"],
+        idea=row["idea"],
+        repo_url=row.get("repo_url"),
+        demo_url=row.get("demo_url"),
+        color=row["color"],
+        creator_user_id=str(row["creator_user_id"]) if row.get("creator_user_id") else None,
+    )
 
 
 async def list_teams() -> list[Team]:
     async with db.get_pool().connection() as conn:
         rows = await _fetchall(conn, f"SELECT {_TEAM_COLUMNS} FROM teams ORDER BY created_at, name")
-    return [Team(**r) for r in rows]
+    return [_team(r) for r in rows]
 
 
 async def get_team(team_id: str) -> Team | None:
     async with db.get_pool().connection() as conn:
         row = await _fetchone(conn, f"SELECT {_TEAM_COLUMNS} FROM teams WHERE id = %s", (team_id,))
-    return Team(**row) if row else None
+    return _team(row) if row else None
 
 
 # Assigned in sign-up order, then reused. From the build spec's design tokens.
@@ -120,6 +134,7 @@ async def create_team(body: TeamCreate) -> Team:
     It enters with no seed, so it sits at the price floor until Scout's first report sets its odds.
     """
     base = re.sub(r"[^a-z0-9]+", "-", body.name.lower()).strip("-") or "team"
+    creator_uid = _as_uuid(body.creator_user_id) if body.creator_user_id else None
     async with db.get_pool().connection() as conn:
         async with conn.transaction():
             if await _fetchone(conn, "SELECT 1 FROM teams WHERE lower(name) = lower(%s)", (body.name,)):
@@ -131,9 +146,9 @@ async def create_team(body: TeamCreate) -> Team:
             count = (await _fetchone(conn, "SELECT count(*) AS n FROM teams"))["n"]
             row = await _fetchone(
                 conn,
-                f"INSERT INTO teams (id, name, idea, repo_url, demo_url, color) VALUES (%s, %s, %s, %s, %s, %s) "
+                f"INSERT INTO teams (id, name, idea, repo_url, demo_url, color, creator_user_id) VALUES (%s, %s, %s, %s, %s, %s, %s) "
                 f"RETURNING {_TEAM_COLUMNS}",
-                (slug, body.name, body.idea, body.repo_url, body.demo_url, TEAM_COLORS[count % len(TEAM_COLORS)]),
+                (slug, body.name, body.idea, body.repo_url, body.demo_url, TEAM_COLORS[count % len(TEAM_COLORS)], creator_uid),
             )
             open_markets = await _fetchall(conn, "SELECT id FROM markets WHERE status = 'open' ORDER BY id")
             for market in open_markets:
@@ -143,7 +158,7 @@ async def create_team(body: TeamCreate) -> Team:
                 )
                 positions[slug] = {"seed": 0.0, "staked": 0.0}
                 await _write_ticks(conn, market["id"], _weights(positions), "scout", await _clock(conn))
-    return Team(**row)
+    return _team(row)
 
 
 # ---- Markets ---------------------------------------------------------------
@@ -441,3 +456,112 @@ async def get_leaderboard(limit: int = 100) -> list[LeaderboardEntry]:
         LeaderboardEntry(rank=r["rank"], user_id=str(r["id"]), display_name=r["display_name"], balance=float(r["balance"]))
         for r in rows
     ]
+
+
+async def get_user_summary(user_id: str) -> UserSummary | None:
+    """Detailed summary of a user's activity: rank, balance, bets placed, and teams signed up."""
+    uid = _as_uuid(user_id)
+    if uid is None:
+        return None
+    async with db.get_pool().connection() as conn:
+        user_row = await _fetchone(conn, "SELECT id, display_name, balance FROM users WHERE id = %s", (uid,))
+        if user_row is None:
+            return None
+
+        rank_row = await _fetchone(
+            conn,
+            "SELECT rank FROM (SELECT id, rank() OVER (ORDER BY balance DESC) AS rank FROM users) x WHERE id = %s",
+            (uid,),
+        )
+        rank = rank_row["rank"] if rank_row else None
+
+        bet_rows = await _fetchall(
+            conn,
+            "SELECT b.id, b.market_id, m.title AS market_title, m.category AS market_category, "
+            "       m.status AS market_status, m.winner_team_id, "
+            "       b.team_id, t.name AS team_name, t.color AS team_color, "
+            "       b.stake, b.price_at_bet, b.multiple, b.created_at "
+            "FROM bets b "
+            "JOIN markets m ON m.id = b.market_id "
+            "JOIN teams t ON t.id = b.team_id "
+            "WHERE b.user_id = %s "
+            "ORDER BY b.created_at DESC",
+            (uid,),
+        )
+
+        team_rows = await _fetchall(
+            conn,
+            f"SELECT {_TEAM_COLUMNS} FROM teams WHERE creator_user_id = %s ORDER BY created_at DESC",
+            (uid,),
+        )
+
+    bets: list[UserBet] = []
+    total_staked = 0.0
+    open_bets_count = 0
+    won_bets_count = 0
+    total_payout = 0.0
+
+    for r in bet_rows:
+        stake = float(r["stake"])
+        mult = float(r["multiple"])
+        potential = pricing.payout(stake, mult)
+        total_staked += stake
+
+        if r["market_status"] == "resolved":
+            if r["winner_team_id"] == r["team_id"]:
+                status = "won"
+                payout = potential
+                won_bets_count += 1
+                total_payout += payout
+            else:
+                status = "lost"
+                payout = 0.0
+        else:
+            status = "open"
+            payout = None
+            open_bets_count += 1
+
+        bets.append(
+            UserBet(
+                id=str(r["id"]),
+                market_id=r["market_id"],
+                market_title=r["market_title"],
+                market_category=r["market_category"],
+                market_status=r["market_status"],
+                winner_team_id=r["winner_team_id"],
+                team_id=r["team_id"],
+                team_name=r["team_name"],
+                team_color=r["team_color"],
+                stake=stake,
+                price_at_bet=float(r["price_at_bet"]),
+                multiple=mult,
+                potential_payout=potential,
+                payout=payout,
+                status=status,
+                created_at=r["created_at"],
+            )
+        )
+
+    user = _user(user_row)
+    # Winnings minus everything staked, which is the balance minus whatever this player started
+    # with. Worked out from the bets because the starting amount is the host's choice, not a constant.
+    net_profit = round(total_payout - total_staked, 2)
+
+    return UserSummary(
+        user=user,
+        rank=rank,
+        total_staked=round(total_staked, 2),
+        bet_count=len(bets),
+        open_bets_count=open_bets_count,
+        won_bets_count=won_bets_count,
+        total_payout=round(total_payout, 2),
+        net_profit=net_profit,
+        bets=bets,
+        teams=[_team(tr) for tr in team_rows],
+    )
+
+
+async def get_user_bets(user_id: str) -> list[UserBet] | None:
+    summary = await get_user_summary(user_id)
+    return summary.bets if summary else None
+

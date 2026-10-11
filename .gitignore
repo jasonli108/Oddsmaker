@@ -15,3 +15,5 @@ node_modules/
 frontend/dist/
 frontend/openapi.json
 *.tsbuildinfo
+
+db/tiger-cloud-db-39434-*

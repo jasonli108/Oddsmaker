@@ -46,7 +46,13 @@ export default function LeaderboardPage() {
       {board.data?.map((row) => {
         const isYou = row.user_id === user?.id;
         return (
-          <div key={row.user_id} className={`card row between ${isYou ? 'selected' : ''}`} style={{ padding: '12px 18px', flexWrap: 'nowrap' }}>
+          <Link
+            key={row.user_id}
+            to={path(`/summary/${row.user_id}`)}
+            className={`card row between ${isYou ? 'selected' : ''}`}
+            style={{ padding: '12px 18px', flexWrap: 'nowrap', textDecoration: 'none', color: 'inherit' }}
+            title={`View ${row.display_name}'s summary and historical trades`}
+          >
             <div className="row" style={{ flexWrap: 'nowrap', minWidth: 0 }}>
               <span className="mono dim" style={{ width: 28, flex: 'none' }}>{row.rank}</span>
               <span style={{ fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -54,8 +60,11 @@ export default function LeaderboardPage() {
               </span>
               {isYou && <span className="badge-accent" style={{ flex: 'none' }}>You</span>}
             </div>
-            <span className="mono" style={{ flex: 'none' }}>{coin(row.balance)} Hackcoin</span>
-          </div>
+            <div className="row" style={{ gap: 14, flex: 'none' }}>
+              <span className="mono">{coin(row.balance)} Hackcoin</span>
+              <span className="dim small">Trades →</span>
+            </div>
+          </Link>
         );
       })}
     </div>
