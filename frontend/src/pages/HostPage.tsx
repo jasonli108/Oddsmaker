@@ -3,10 +3,10 @@ import { Link } from 'react-router-dom';
 import { ApiError, api } from '../api/client';
 import type { HostMarketRow, ResolveResult } from '../api/types';
 import Stat from '../components/Stat';
-import { coin, pct, plural } from '../format';
+import { coin, dateTime, pct, plural } from '../format';
 import { hostPassword } from '../host';
 import { useAttendeePath } from '../hooks/useAttendeePath';
-import { useEvent, useEventSlug } from '../hooks/useEvent';
+import { useEvent, useEventSlug, useSubmissionsClosed } from '../hooks/useEvent';
 import { usePolling } from '../hooks/usePolling';
 
 /** The organiser's page for one event: how it is going, and where each market's winner is picked. */
@@ -91,7 +91,10 @@ function PasswordGate({ onUnlock }: { onUnlock: (password: string) => void }) {
 
 function Dashboard({ password, onLock }: { password: string; onLock: () => void }) {
   const eventSlug = useEventSlug();
-  const { name: eventName } = useEvent();
+  const { name: eventName, submissionsClose } = useEvent();
+  // Winners can be picked once submissions close. An event with no deadline has no such wait.
+  const submissionsClosed = useSubmissionsClosed();
+  const canPick = !submissionsClose || submissionsClosed;
   const summary = usePolling(() => api.getHostSummary(eventSlug, password), `${eventSlug}-${password}`);
   const path = useAttendeePath();
   const s = summary.data;
@@ -144,8 +147,15 @@ function Dashboard({ password, onLock }: { password: string; onLock: () => void 
               Pick a winner once the judges announce it. That closes the market and pays every bet on the winner; it can't
               be undone.
             </div>
+            {submissionsClose && !canPick && (
+              <div className="card small" style={{ borderColor: 'var(--amber-border)' }}>
+                <span style={{ color: 'var(--amber)', fontWeight: 500 }}>Submissions are still open.</span> Teams can
+                sign up and attendees can bet until they close at{' '}
+                <span className="mono">{dateTime(submissionsClose)}</span>. You can pick winners after that.
+              </div>
+            )}
             {s.markets.map((m) => (
-              <MarketRow key={m.id} market={m} password={password} onResolved={summary.refresh} />
+              <MarketRow key={m.id} market={m} password={password} canPick={canPick} onResolved={summary.refresh} />
             ))}
           </div>
 
@@ -173,11 +183,13 @@ function Dashboard({ password, onLock }: { password: string; onLock: () => void 
 type MarketRowProps = {
   market: HostMarketRow;
   password: string;
+  /** False until the event's submissions close: the market is still taking bets. */
+  canPick: boolean;
   /** Called after a market is resolved so the numbers refresh straight away. */
   onResolved: () => void;
 };
 
-function MarketRow({ market, password, onResolved }: MarketRowProps) {
+function MarketRow({ market, password, canPick, onResolved }: MarketRowProps) {
   // The summary only names the leader; the picker needs every team in the market.
   const detail = usePolling(() => api.getMarket(market.id), market.id);
   const teams = detail.data?.teams ?? [];
@@ -230,7 +242,7 @@ function MarketRow({ market, password, onResolved }: MarketRowProps) {
         </div>
       </div>
 
-      {open && teams.length > 0 && !confirming && (
+      {open && canPick && teams.length > 0 && !confirming && (
         <div className="row" style={{ gap: 8 }}>
           <select
             className="input"
@@ -252,7 +264,7 @@ function MarketRow({ market, password, onResolved }: MarketRowProps) {
         </div>
       )}
 
-      {open && confirming && picked && (
+      {open && canPick && confirming && picked && (
         <div className="stack" style={{ gap: 10, borderTop: '1px solid var(--border)', paddingTop: 14 }}>
           <div>
             Close <strong>{market.category}</strong> with <strong>{picked.name}</strong> as the winner? Every bet on{' '}

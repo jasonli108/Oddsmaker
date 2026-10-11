@@ -257,8 +257,8 @@ async def _save_report(report: ScoutReport, *, stale: bool) -> None:
 # ---- Setting the odds --------------------------------------------------------
 
 
-async def reprice_markets() -> None:
-    """Steps 7 and 8, after the reports are saved.
+async def reprice_markets(event_slug: str | None = None) -> None:
+    """Steps 7 and 8, after the reports are saved. Every event's markets, or one event's if given.
 
     7. For each market, odds = pricing.odds_from_scores over the latest score, in that market's
        category, of every team in the market's event, with NEUTRAL_SCORE for a team that has no
@@ -278,7 +278,7 @@ async def reprice_markets() -> None:
             )
         ).fetchall()
     latest = {r["team_id"]: r["scores"] for r in rows}
-    for market in await market_service.list_markets():
+    for market in await market_service.list_markets(event_slug):
         key = market.score_key if market.score_key in MARKET_IDS else "overall"
         scores = {t.id: latest.get(t.id, {}).get(key, NEUTRAL_SCORE) for t in teams_in.get(market.event_slug, [])}
         await market_service.apply_scout_odds(market.id, pricing.odds_from_scores(scores))

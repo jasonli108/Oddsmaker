@@ -16,8 +16,8 @@ db: ## Start local TimescaleDB, apply the schema, seed markets and sample teams
 db-init: ## Apply db/schema.sql to DATABASE_URL (local or Tiger Cloud)
 	cd backend && .venv/bin/python -m scripts.init_db
 
-db-seed:
-	cd backend && .venv/bin/python -m scripts.seed
+db-seed: ## Seed the sample event. CLOSES_IN=15 restarts its submission deadline, 15 minutes from now
+	cd backend && .venv/bin/python -m scripts.seed $(if $(CLOSES_IN),--closes-in $(CLOSES_IN))
 
 db-reset: ## Wipe the local database and rebuild it
 	docker compose down -v

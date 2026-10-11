@@ -9,6 +9,7 @@ This is a one-day hackathon build with three people working in parallel. Prefer 
 ```bash
 make setup      # venv + pip install + npm install, creates backend/.env
 make db         # local TimescaleDB in Docker, apply schema, seed
+make db-seed CLOSES_IN=15   # restart the sample event's submission deadline, 15 minutes from now
 make db-reset   # wipe the local database and rebuild it
 make backend    # FastAPI on :8000, docs at /docs
 make frontend   # Vite on :5173, proxies /api to :8000
@@ -43,6 +44,8 @@ Unfinished work is marked `TODO(market)`, `TODO(frontend)` or `TODO(scout)`.
 - The market is real. Only Scout reports still come from `app/sample_data.py`, which also supplies the seed script and the test fixtures with their sample teams. Replace a mock by rewriting the function body and keeping its signature and return type.
 - Only `app/market/service.py` writes to `positions`, `price_ticks`, `bets` and user balances. Scout moves prices by calling `market.service.apply_scout_odds`, never by writing those tables itself.
 - A bet is one transaction with the market's `positions` rows locked (`SELECT ... FOR UPDATE`): check balance, read price, insert bet, deduct balance, add to `staked`, insert a tick for every team in the market. Resolution and `apply_scout_odds` take the same lock.
+- An event's `submissions_close_at` splits its life: `create_team` and `place_bet` refuse sign-ups and bets after it, and `resolve_market` refuses to pick a winner before it (`_submissions_closed`). `POST /events` requires one. Only the seeded sample event has none, and it stays open until the host picks each winner.
+- A player can sign up one team per event (`create_team` checks `creator_user_id`). The sign-up form requires a display name for that reason.
 - A bet's `multiple` is stored at bet time and never recomputed. The receipt and the resolve step both use `pricing.payout`, so the amount promised is the amount paid.
 - `GET /markets/:id/history` reads the `price_ticks_1m` continuous aggregate, not raw `price_ticks`. That is the Tiger Data prize feature.
 - Market rules as pure functions live in `app/market/pricing.py`; tunable numbers (starting balance, seed size, price floor) live in `app/config.py`, not inline.

@@ -312,6 +312,8 @@ class EventCreate(BaseModel):
     hosted_by: str | None = None
     location: str | None = None
     starts_at: datetime | None = None
+    # Team sign-up and betting stop here, and the host picks winners after it. POST /events refuses
+    # an event without one; only the seeded sample event has none.
     submissions_close_at: datetime | None = None
     source_url: str | None = None
     categories: list[EventCategory] = []

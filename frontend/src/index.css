@@ -216,6 +216,16 @@ select.input {
   font-weight: 500;
   border-bottom: 2px solid transparent;
 }
+/* A tab the player can't use, e.g. "Sign up a team" once they have signed one up. */
+.tabs .tab-off {
+  display: block;
+  padding: 14px 0;
+  font-weight: 500;
+  border-bottom: 2px solid transparent;
+  color: var(--text-dim);
+  opacity: 0.5;
+  cursor: not-allowed;
+}
 .tabs a.active {
   color: var(--text);
   border-bottom-color: var(--accent);

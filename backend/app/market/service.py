@@ -76,6 +76,20 @@ async def _event_exists(conn: AsyncConnection, event_slug: str) -> bool:
     return await _fetchone(conn, "SELECT 1 FROM events WHERE slug = %s", (event_slug,)) is not None
 
 
+async def _submissions_closed(conn: AsyncConnection, event_slug: str | None) -> bool | None:
+    """Whether an event's submission deadline has passed, by the clock right now.
+
+    The deadline splits an event in two: teams sign up and bets are taken before it, and the
+    host may pick winners after it. None means there is no deadline: launching an event requires
+    one, so that is only the sample event or a market with no event. Then sign-ups and bets run
+    until the host picks a winner, which they may do at any time.
+    """
+    row = await _fetchone(
+        conn, "SELECT submissions_close_at <= clock_timestamp() AS closed FROM events WHERE slug = %s", (event_slug,)
+    )
+    return row["closed"] if row else None
+
+
 async def _lock_positions(conn: AsyncConnection, market_id: str) -> dict[str, dict[str, float]]:
     """Lock a market's positions rows until the transaction ends. Returns team_id -> {seed, staked}."""
     rows = await _fetchall(
@@ -154,7 +168,9 @@ async def create_team(body: TeamCreate) -> Team:
     """Save a team and enter it in every open market of its event.
 
     It enters with no seed, so it sits at the price floor until Scout's first report sets its odds.
-    The name must be new within the event; the id is unique across all events.
+    The name must be new within the event; the id is unique across all events. A player can sign
+    up one team per event, so a team is added once, by one of its members. Sign-ups close at the
+    event's submission deadline.
     """
     base = _slug(body.name, "team")
     event = body.event_slug
@@ -163,6 +179,14 @@ async def create_team(body: TeamCreate) -> Team:
         async with conn.transaction():
             if event is not None and not await _event_exists(conn, event):
                 raise MarketError("This event doesn't exist. Check the link you were given.")
+            if await _submissions_closed(conn, event):
+                raise MarketError("Team sign-up is closed: submissions have closed.")
+            if creator_uid is not None and await _fetchone(
+                conn,
+                "SELECT 1 FROM teams WHERE creator_user_id = %s AND event_slug IS NOT DISTINCT FROM %s",
+                (creator_uid, event),
+            ):
+                raise MarketError("You've already signed up a team. Each person can add one team.")
             if await _fetchone(
                 conn,
                 "SELECT 1 FROM teams WHERE lower(name) = lower(%s) AND event_slug IS NOT DISTINCT FROM %s",
@@ -367,6 +391,8 @@ async def place_bet(body: BetCreate) -> BetReceipt | None:
             market = await _fetchone(conn, "SELECT status, event_slug FROM markets WHERE id = %s", (body.market_id,))
             if market["status"] != "open":
                 raise MarketError("Betting is closed: this market has been resolved.")
+            if await _submissions_closed(conn, market["event_slug"]):
+                raise MarketError("Betting is closed: submissions have closed and the judges are deciding.")
 
             user = None
             if user_id is not None:
@@ -413,15 +439,20 @@ async def place_bet(body: BetCreate) -> BetReceipt | None:
 
 
 async def resolve_market(market_id: str, winner_team_id: str) -> ResolveResult | None:
-    """Close a market and pay every bet on the winner its stake times its locked multiple."""
+    """Close a market and pay every bet on the winner its stake times its locked multiple.
+
+    Not before the event's submission deadline: until then the market is still taking bets.
+    """
     async with db.get_pool().connection() as conn:
         async with conn.transaction():
             # The lock stops bets landing mid-payout. An unknown market has no positions.
             if winner_team_id not in await _lock_positions(conn, market_id):
                 return None
-            market = await _fetchone(conn, "SELECT status FROM markets WHERE id = %s", (market_id,))
+            market = await _fetchone(conn, "SELECT status, event_slug FROM markets WHERE id = %s", (market_id,))
             if market["status"] != "open":
                 raise MarketError("This market has already been resolved.")
+            if await _submissions_closed(conn, market["event_slug"]) is False:
+                raise MarketError("Submissions are still open. You can pick a winner once they close.")
             resolved = await _fetchone(
                 conn,
                 f"UPDATE markets SET status = 'resolved', winner_team_id = %s WHERE id = %s RETURNING {_MARKET_COLUMNS}",

@@ -3,7 +3,9 @@ import { Link } from 'react-router-dom';
 import { ApiError, api } from '../api/client';
 import type { Team } from '../api/types';
 import { useAttendeePath } from '../hooks/useAttendeePath';
-import { useEventSlug } from '../hooks/useEvent';
+import { dateTime } from '../format';
+import { useEvent, useEventSlug, useSubmissionsClosed } from '../hooks/useEvent';
+import { useMyTeam } from '../hooks/useMyTeam';
 import { useUser } from '../hooks/useUser';
 
 const NAME_MAX = 60;
@@ -23,7 +25,10 @@ function isHttpUrl(value: string): boolean {
 
 /** Team sign-up: name, one-line idea, repo link, demo link. No design exists for this screen. */
 export default function SignUpPage() {
-  const { user } = useUser();
+  const { user, ready: userReady } = useUser();
+  const myTeam = useMyTeam();
+  const { submissionsClose } = useEvent();
+  const submissionsClosed = useSubmissionsClosed();
   const [form, setForm] = useState<Record<Field, string>>({ name: '', idea: '', repo_url: '', demo_url: '' });
   const [errors, setErrors] = useState<Errors>({});
   const [formError, setFormError] = useState<string | null>(null);
@@ -48,6 +53,7 @@ export default function SignUpPage() {
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
+    if (!user) return;
     const found = validate();
     setErrors(found);
     setFormError(null);
@@ -60,7 +66,7 @@ export default function SignUpPage() {
         idea: form.idea.trim(),
         repo_url: form.repo_url.trim() || null,
         demo_url: form.demo_url.trim() || null,
-        creator_user_id: user?.id ?? null,
+        creator_user_id: user.id,
         event_slug: eventSlug,
       });
       try {
@@ -104,12 +110,67 @@ export default function SignUpPage() {
     );
   }
 
+  // One team per player: someone who has signed theirs up gets its links, not the form again.
+  if (myTeam) {
+    return (
+      <div className="container stack" style={{ paddingTop: 28, maxWidth: 560 }}>
+        <h1>You've signed up {myTeam.name}</h1>
+        <div className="dim">
+          Each person can sign up one team, and a team only needs adding once. Your teammates don't need to add it again.
+        </div>
+        <div className="row" style={{ gap: 10 }}>
+          <Link className="btn primary" to={path(`/reports/${myTeam.id}`)} style={{ display: 'grid', placeItems: 'center' }}>
+            See your Scout report
+          </Link>
+          <Link className="btn" to={path('/summary')} style={{ display: 'grid', placeItems: 'center' }}>
+            View in your summary
+          </Link>
+          <Link className="btn" to={path()} style={{ display: 'grid', placeItems: 'center' }}>
+            Go to the markets
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  if (submissionsClosed) {
+    return (
+      <div className="container stack" style={{ paddingTop: 28, maxWidth: 560 }}>
+        <h1>Team sign-up is closed</h1>
+        <div className="dim">
+          Submissions closed{submissionsClose && <> at <span className="mono">{dateTime(submissionsClose)}</span></>}, so
+          no more teams can be added. Betting is closed too; the markets pay out when the organiser picks the winners.
+        </div>
+        <div className="row" style={{ gap: 10 }}>
+          <Link className="btn primary" to={path()} style={{ display: 'grid', placeItems: 'center' }}>
+            Go to the markets
+          </Link>
+          <Link className="btn" to={path('/reports')} style={{ display: 'grid', placeItems: 'center' }}>
+            Read the Scout reports
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <form className="container stack" onSubmit={onSubmit} noValidate style={{ paddingTop: 28, paddingBottom: 48, maxWidth: 560 }}>
       <h1>Sign up your team</h1>
       <div className="dim">
         Scout reads only the links you submit here, publishes a report on your project, and sets your opening odds.
       </div>
+      <div className="card small" style={{ borderColor: 'var(--amber-border)' }}>
+        <span style={{ color: 'var(--amber)', fontWeight: 500 }}>One person per team.</span> Pick a team rep to add your
+        project: a team that is added twice shows up twice in every market. Each person can sign up one team.
+        {submissionsClose && (
+          <> Sign-up closes when submissions close, at <span className="mono">{dateTime(submissionsClose)}</span>.</>
+        )}
+      </div>
+      {userReady && !user && (
+        <div className="error" role="alert">
+          Pick a display name at the top of the page first. Your team is signed up under it.
+        </div>
+      )}
 
       <FieldRow label="Team name" error={errors.name}>
         <input className="input" maxLength={NAME_MAX} aria-invalid={!!errors.name} value={form.name} onChange={set('name')} />
@@ -142,7 +203,7 @@ export default function SignUpPage() {
       </FieldRow>
 
       {formError && <div className="error" role="alert">{formError}</div>}
-      <button className="btn primary" type="submit" disabled={busy}>
+      <button className="btn primary" type="submit" disabled={busy || !user}>
         {busy ? 'Signing up…' : 'Sign up'}
       </button>
     </form>

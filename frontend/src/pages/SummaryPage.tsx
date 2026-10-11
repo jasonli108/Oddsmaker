@@ -7,7 +7,7 @@ import { ago, clock, coin, multiple, pct } from '../format';
 import { usePolling } from '../hooks/usePolling';
 import { publicOrigin } from '../host';
 import { useAttendeePath } from '../hooks/useAttendeePath';
-import { useEvent } from '../hooks/useEvent';
+import { useEvent, useSubmissionsClosed } from '../hooks/useEvent';
 import { useUser } from '../hooks/useUser';
 
 type Filter = 'all' | 'open' | 'won' | 'lost';
@@ -17,6 +17,7 @@ export default function SummaryPage() {
   const { user: currentUser } = useUser();
   const path = useAttendeePath();
   const { startingBalance } = useEvent();
+  const submissionsClosed = useSubmissionsClosed();
   const [filter, setFilter] = useState<Filter>('all');
   const [copied, setCopied] = useState(false);
 
@@ -135,22 +136,47 @@ export default function SummaryPage() {
           {/* Section: Teams Signed Up */}
           <div className="stack" style={{ gap: 14 }}>
             <div className="row between">
-              <h2>{isOwnProfile ? 'Teams you signed up' : `Teams signed up by ${summary.user.display_name}`}</h2>
-              {isOwnProfile && (
-                <Link className="btn small" to={path('/signup')} style={{ display: 'grid', placeItems: 'center', minHeight: 34 }}>
-                  + Sign up another team
-                </Link>
-              )}
+              <div>
+                <h2>{isOwnProfile ? 'Your team' : `Team signed up by ${summary.user.display_name}`}</h2>
+                {isOwnProfile && (
+                  <div className="dim small">
+                    Each person can sign up one team.
+                    {summary.teams.length > 0
+                      ? ' You have signed up yours.'
+                      : submissionsClosed && ' Sign-up closed when submissions closed.'}
+                  </div>
+                )}
+              </div>
+              {isOwnProfile &&
+                (summary.teams.length > 0 || submissionsClosed ? (
+                  <button
+                    className="btn small"
+                    disabled
+                    title={
+                      summary.teams.length > 0
+                        ? 'Each person can sign up one team, and you have signed up yours.'
+                        : 'Team sign-up closed when submissions closed.'
+                    }
+                  >
+                    Sign up a team
+                  </button>
+                ) : (
+                  <Link className="btn small" to={path('/signup')} style={{ display: 'grid', placeItems: 'center' }}>
+                    Sign up a team
+                  </Link>
+                ))}
             </div>
 
             {summary.teams.length === 0 ? (
               <div className="card stack" style={{ gap: 10, padding: 18 }}>
                 <div className="dim">
-                  {isOwnProfile
+                  {isOwnProfile && submissionsClosed
+                    ? "You didn't sign up a team, and sign-up is closed now."
+                    : isOwnProfile
                     ? "You haven't signed up a team yet. Enter your project in the hackathon market so Scout can report on it and attendees can bet."
-                    : `${summary.user.display_name} has not signed up any teams yet.`}
+                    : `${summary.user.display_name} has not signed up a team yet.`}
                 </div>
-                {isOwnProfile && (
+                {isOwnProfile && !submissionsClosed && (
                   <div>
                     <Link className="btn primary" to={path('/signup')} style={{ display: 'inline-grid', placeItems: 'center' }}>
                       Sign up a team

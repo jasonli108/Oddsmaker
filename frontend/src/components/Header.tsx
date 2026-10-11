@@ -3,7 +3,8 @@ import { Link, NavLink } from 'react-router-dom';
 import { ApiError } from '../api/client';
 import { coin, countdown } from '../format';
 import { useAttendeePath } from '../hooks/useAttendeePath';
-import { useEvent } from '../hooks/useEvent';
+import { useEvent, useSubmissionsClosed } from '../hooks/useEvent';
+import { useMyTeam } from '../hooks/useMyTeam';
 import { useNow } from '../hooks/useNow';
 import { useUser } from '../hooks/useUser';
 
@@ -20,6 +21,14 @@ export default function Header() {
   const { user, ready } = useUser();
   const { name: eventName } = useEvent();
   const path = useAttendeePath();
+  const myTeam = useMyTeam();
+  const submissionsClosed = useSubmissionsClosed();
+  // Sign-up is off for a player who has signed their one team up, and for everyone after the deadline.
+  const signUpOff = myTeam
+    ? `You've signed up ${myTeam.name}. Each person can add one team.`
+    : submissionsClosed
+      ? 'Team sign-up closed when submissions closed.'
+      : null;
 
   return (
     <header style={{ borderBottom: '1px solid var(--border)' }}>
@@ -52,11 +61,17 @@ export default function Header() {
         </div>
       </div>
       <nav className="container tabs">
-        {TABS.map((tab) => (
-          <NavLink key={tab.to} to={path(tab.to)} end={tab.to === ''}>
-            {tab.label}
-          </NavLink>
-        ))}
+        {TABS.map((tab) =>
+          tab.to === '/signup' && signUpOff ? (
+            <span key={tab.to} className="tab-off" aria-disabled="true" title={signUpOff}>
+              {tab.label}
+            </span>
+          ) : (
+            <NavLink key={tab.to} to={path(tab.to)} end={tab.to === ''}>
+              {tab.label}
+            </NavLink>
+          ),
+        )}
       </nav>
     </header>
   );
@@ -67,7 +82,7 @@ function Countdown() {
   const now = useNow();
   if (!submissionsClose) return null;
   const left = submissionsClose.getTime() - now;
-  if (left <= 0) return <div className="dim small">Submissions closed</div>;
+  if (left <= 0) return <div className="dim small">Submissions closed · sign-up and betting closed</div>;
   return (
     <div className="dim small">
       Submissions close in{' '}

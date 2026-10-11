@@ -3,6 +3,7 @@ import { matchPath, useLocation } from 'react-router-dom';
 import { ApiError, api } from '../api/client';
 import type { EventInfo } from '../api/types';
 import { STARTING_BALANCE } from '../config';
+import { useNow } from './useNow';
 import { usePolling } from './usePolling';
 
 type EventContext = {
@@ -62,6 +63,18 @@ export function useEvent(): EventContext {
   const ctx = useContext(Ctx);
   if (!ctx) throw new Error('useEvent must be used inside <EventProvider>');
   return ctx;
+}
+
+/**
+ * Whether the event's submission deadline has passed. From then on team sign-up and betting are
+ * closed and the host may pick winners; before it, the reverse. Never true for an event with no
+ * deadline (only the sample event): that one stays open until the host picks each winner. The
+ * server enforces all of this; here it only decides what to show.
+ */
+export function useSubmissionsClosed(): boolean {
+  const { submissionsClose } = useEvent();
+  const now = useNow();
+  return !!submissionsClose && now >= submissionsClose.getTime();
 }
 
 /** The event slug for a page under a route that names one (see EVENT_ROUTES). */
