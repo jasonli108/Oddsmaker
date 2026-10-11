@@ -1,13 +1,15 @@
 import { useState, type FormEvent } from 'react';
-import { NavLink } from 'react-router-dom';
+import { Link, NavLink } from 'react-router-dom';
 import { ApiError } from '../api/client';
-import { EVENT_NAME, SUBMISSIONS_CLOSE } from '../config';
 import { coin, countdown } from '../format';
+import { useAttendeePath } from '../hooks/useAttendeePath';
+import { useEvent } from '../hooks/useEvent';
 import { useNow } from '../hooks/useNow';
 import { useUser } from '../hooks/useUser';
 
+// Paths inside the attendee app, which lives under /e/:slug.
 const TABS = [
-  { to: '/', label: 'Markets' },
+  { to: '', label: 'Markets' },
   { to: '/reports', label: 'Scout reports' },
   { to: '/leaderboard', label: 'Leaderboard' },
   { to: '/signup', label: 'Sign up a team' },
@@ -16,13 +18,17 @@ const TABS = [
 
 export default function Header() {
   const { user, ready } = useUser();
+  const { name: eventName } = useEvent();
+  const path = useAttendeePath();
 
   return (
     <header style={{ borderBottom: '1px solid var(--border)' }}>
       <div className="container row between" style={{ paddingTop: 16, paddingBottom: 16, gap: 16 }}>
         <div className="row" style={{ gap: 14 }}>
-          <div style={{ fontSize: 20, fontWeight: 600, letterSpacing: '-0.01em' }}>Oddsmaker</div>
-          <div className="dim" style={{ fontSize: 14 }}>{EVENT_NAME}</div>
+          <Link to={path()} style={{ fontSize: 20, fontWeight: 600, letterSpacing: '-0.01em', color: 'var(--text)' }}>
+            Oddsmaker
+          </Link>
+          <div className="dim" style={{ fontSize: 14 }}>{eventName}</div>
           {/* The submission checklist requires this on every screen. */}
           <div className="badge-amber">Play money only</div>
         </div>
@@ -30,7 +36,7 @@ export default function Header() {
           <Countdown />
           {user ? (
             <NavLink
-              to="/summary"
+              to={path('/summary')}
               className="card small dim"
               title={`Playing as ${user.display_name} – View summary & historical trades`}
               style={{ padding: '8px 14px', borderRadius: 'var(--radius-control)', display: 'inline-block', textDecoration: 'none' }}
@@ -47,7 +53,7 @@ export default function Header() {
       </div>
       <nav className="container tabs">
         {TABS.map((tab) => (
-          <NavLink key={tab.to} to={tab.to} end={tab.to === '/'}>
+          <NavLink key={tab.to} to={path(tab.to)} end={tab.to === ''}>
             {tab.label}
           </NavLink>
         ))}
@@ -57,7 +63,8 @@ export default function Header() {
 }
 
 function Countdown() {
-  const left = SUBMISSIONS_CLOSE.getTime() - useNow();
+  const { submissionsClose } = useEvent();
+  const left = submissionsClose.getTime() - useNow();
   if (left <= 0) return <div className="dim small">Submissions closed</div>;
   return (
     <div className="dim small">
@@ -69,6 +76,7 @@ function Countdown() {
 
 function JoinForm() {
   const { join } = useUser();
+  const { startingBalance } = useEvent();
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -105,7 +113,7 @@ function JoinForm() {
           onChange={(e) => setName(e.target.value)}
         />
         <button className="btn primary" type="submit" disabled={busy}>
-          {busy ? 'Setting up…' : 'Get 1,000 Hackcoin'}
+          {busy ? 'Setting up…' : `Get ${coin(startingBalance)} Hackcoin`}
         </button>
       </div>
       {error && <div className="error" role="alert">{error}</div>}

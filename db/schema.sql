@@ -109,5 +109,8 @@ CREATE TABLE IF NOT EXISTS events (
     submissions_close_at  TIMESTAMPTZ,
     source_url            TEXT,
     categories            JSONB NOT NULL DEFAULT '[]',   -- list of EventCategory
+    starting_balance      INTEGER NOT NULL DEFAULT 1000 CHECK (starting_balance > 0),
     created_at            TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+-- For databases that created the events table before starting_balance existed.
+ALTER TABLE events ADD COLUMN IF NOT EXISTS starting_balance INTEGER NOT NULL DEFAULT 1000 CHECK (starting_balance > 0);

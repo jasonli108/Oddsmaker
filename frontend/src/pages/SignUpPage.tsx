@@ -2,6 +2,7 @@ import { useState, type FormEvent, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { ApiError, api } from '../api/client';
 import type { Team } from '../api/types';
+import { useAttendeePath } from '../hooks/useAttendeePath';
 import { useUser } from '../hooks/useUser';
 
 const NAME_MAX = 60;
@@ -27,6 +28,7 @@ export default function SignUpPage() {
   const [formError, setFormError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [created, setCreated] = useState<Team | null>(null);
+  const path = useAttendeePath();
 
   const set = (field: Field) => (e: { target: { value: string } }) => {
     setForm((f) => ({ ...f, [field]: e.target.value }));
@@ -85,13 +87,13 @@ export default function SignUpPage() {
           minute.
         </div>
         <div className="row" style={{ gap: 10 }}>
-          <Link className="btn primary" to={`/reports/${created.id}`} style={{ display: 'grid', placeItems: 'center' }}>
+          <Link className="btn primary" to={path(`/reports/${created.id}`)} style={{ display: 'grid', placeItems: 'center' }}>
             See your Scout report
           </Link>
-          <Link className="btn" to="/summary" style={{ display: 'grid', placeItems: 'center' }}>
+          <Link className="btn" to={path('/summary')} style={{ display: 'grid', placeItems: 'center' }}>
             View in your summary
           </Link>
-          <Link className="btn" to="/" style={{ display: 'grid', placeItems: 'center' }}>
+          <Link className="btn" to={path()} style={{ display: 'grid', placeItems: 'center' }}>
             Go to the markets
           </Link>
         </div>

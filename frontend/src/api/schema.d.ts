@@ -380,6 +380,11 @@ export interface components {
              * @default []
              */
             categories: components["schemas"]["EventCategory"][];
+            /**
+             * Starting Balance
+             * @default 1000
+             */
+            starting_balance: number;
             /** Slug */
             slug: string;
         };
@@ -411,6 +416,11 @@ export interface components {
              * @default []
              */
             categories: components["schemas"]["EventCategory"][];
+            /**
+             * Starting Balance
+             * @default 1000
+             */
+            starting_balance: number;
         };
         /**
          * EventDraft

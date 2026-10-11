@@ -4,22 +4,21 @@ import { ApiError, api } from '../api/client';
 import type { HostMarketRow, ResolveResult } from '../api/types';
 import Stat from '../components/Stat';
 import { coin, pct, plural } from '../format';
+import { hostPassword } from '../host';
+import { useAttendeePath } from '../hooks/useAttendeePath';
 import { usePolling } from '../hooks/usePolling';
-
-/** Kept for this browser tab only, so closing the tab locks the host page again. */
-const STORAGE_KEY = 'oddsmaker.hostPassword';
 
 /** The organiser's page: how the event is going, and where each market's winner is picked. */
 export default function HostPage() {
-  const [password, setPassword] = useState(() => sessionStorage.getItem(STORAGE_KEY));
+  const [password, setPassword] = useState(() => hostPassword.get());
 
   function unlock(value: string) {
-    sessionStorage.setItem(STORAGE_KEY, value);
+    hostPassword.set(value);
     setPassword(value);
   }
 
   function lock() {
-    sessionStorage.removeItem(STORAGE_KEY);
+    hostPassword.clear();
     setPassword(null);
   }
 
@@ -77,6 +76,7 @@ function PasswordGate({ onUnlock }: { onUnlock: (password: string) => void }) {
 
 function Dashboard({ password, onLock }: { password: string; onLock: () => void }) {
   const summary = usePolling(() => api.getHostSummary(password), password);
+  const path = useAttendeePath();
   const s = summary.data;
 
   // The password was changed on the server while this tab was open.
@@ -96,7 +96,7 @@ function Dashboard({ password, onLock }: { password: string; onLock: () => void 
       <div className="row between">
         <h1>Host page</h1>
         <div className="row">
-          <Link className="btn" to="/" style={{ display: 'grid', placeItems: 'center' }}>
+          <Link className="btn" to={path()} style={{ display: 'grid', placeItems: 'center' }}>
             Open the attendee app
           </Link>
           <button className="btn" onClick={onLock}>Lock</button>

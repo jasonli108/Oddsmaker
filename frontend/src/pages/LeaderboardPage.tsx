@@ -1,11 +1,13 @@
 import { Link } from 'react-router-dom';
 import { api } from '../api/client';
 import { coin } from '../format';
+import { useAttendeePath } from '../hooks/useAttendeePath';
 import { usePolling } from '../hooks/usePolling';
 import { useUser } from '../hooks/useUser';
 
 export default function LeaderboardPage() {
   const { user } = useUser();
+  const path = useAttendeePath();
   const board = usePolling(api.getLeaderboard, 'leaderboard');
   const markets = usePolling(api.listMarkets, 'leaderboard-markets');
 
@@ -35,7 +37,7 @@ export default function LeaderboardPage() {
       {board.data?.length === 0 && (
         <div className="card stack" style={{ alignItems: 'flex-start' }}>
           <div>Nobody has joined yet. Pick a display name at the top to be first.</div>
-          <Link className="btn" to="/" style={{ display: 'grid', placeItems: 'center' }}>
+          <Link className="btn" to={path()} style={{ display: 'grid', placeItems: 'center' }}>
             See the markets
           </Link>
         </div>
@@ -46,7 +48,7 @@ export default function LeaderboardPage() {
         return (
           <Link
             key={row.user_id}
-            to={`/summary/${row.user_id}`}
+            to={path(`/summary/${row.user_id}`)}
             className={`card row between ${isYou ? 'selected' : ''}`}
             style={{ padding: '12px 18px', flexWrap: 'nowrap', textDecoration: 'none', color: 'inherit' }}
             title={`View ${row.display_name}'s summary and historical trades`}

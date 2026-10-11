@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom';
 import { api } from '../api/client';
 import type { MarketTeam } from '../api/types';
 import { clock, pct } from '../format';
+import { useAttendeePath } from '../hooks/useAttendeePath';
 import { usePolling } from '../hooks/usePolling';
 import Stat from './Stat';
 
@@ -9,6 +10,7 @@ import Stat from './Stat';
 export default function ScoutSummary({ team }: { team: MarketTeam }) {
   const { data } = usePolling(() => api.getTeamReport(team.team_id), team.team_id, 30_000);
   const report = data?.report;
+  const path = useAttendeePath();
 
   const diff = Math.round(team.scout_odds * 100) - Math.round(team.price * 100);
   const gap =
@@ -43,7 +45,7 @@ export default function ScoutSummary({ team }: { team: MarketTeam }) {
       ) : (
         <div className="dim small">{data ? 'Scout has not reported on this team yet.' : 'Loading…'}</div>
       )}
-      <Link className="btn" to={`/reports/${team.team_id}`} style={{ display: 'grid', placeItems: 'center' }}>
+      <Link className="btn" to={path(`/reports/${team.team_id}`)} style={{ display: 'grid', placeItems: 'center' }}>
         Read full report
       </Link>
     </div>

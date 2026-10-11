@@ -5,6 +5,9 @@ import type { UserBet } from '../api/types';
 import Stat from '../components/Stat';
 import { ago, clock, coin, multiple, pct } from '../format';
 import { usePolling } from '../hooks/usePolling';
+import { publicOrigin } from '../host';
+import { useAttendeePath } from '../hooks/useAttendeePath';
+import { useEvent } from '../hooks/useEvent';
 import { useUser } from '../hooks/useUser';
 
 type Filter = 'all' | 'open' | 'won' | 'lost';
@@ -12,6 +15,8 @@ type Filter = 'all' | 'open' | 'won' | 'lost';
 export default function SummaryPage() {
   const { userId: routeUserId } = useParams<{ userId?: string }>();
   const { user: currentUser } = useUser();
+  const path = useAttendeePath();
+  const { startingBalance } = useEvent();
   const [filter, setFilter] = useState<Filter>('all');
   const [copied, setCopied] = useState(false);
 
@@ -30,7 +35,7 @@ export default function SummaryPage() {
 
   function onCopyLink() {
     if (!activeUserId) return;
-    const url = `${window.location.origin}/summary/${activeUserId}`;
+    const url = publicOrigin() + path(`/summary/${activeUserId}`);
     navigator.clipboard.writeText(url).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2500);
@@ -44,13 +49,13 @@ export default function SummaryPage() {
         <div className="card stack" style={{ gap: 16 }}>
           <div style={{ fontSize: 16, fontWeight: 500 }}>No forecaster selected</div>
           <div className="dim">
-            Pick a display name at the top to receive 1,000 Hackcoin, place bets on teams, and view your summary here.
+            Pick a display name at the top to receive {coin(startingBalance)} Hackcoin, place bets on teams, and view your summary here.
           </div>
           <div className="row" style={{ gap: 12 }}>
-            <Link className="btn primary" to="/" style={{ display: 'grid', placeItems: 'center' }}>
+            <Link className="btn primary" to={path()} style={{ display: 'grid', placeItems: 'center' }}>
               Explore Markets
             </Link>
-            <Link className="btn" to="/leaderboard" style={{ display: 'grid', placeItems: 'center' }}>
+            <Link className="btn" to={path('/leaderboard')} style={{ display: 'grid', placeItems: 'center' }}>
               View Leaderboard
             </Link>
           </div>
@@ -65,7 +70,7 @@ export default function SummaryPage() {
     return b.status === filter;
   });
 
-  const shareUrl = `${window.location.origin}/summary/${activeUserId}`;
+  const shareUrl = publicOrigin() + path(`/summary/${activeUserId}`);
 
   return (
     <div className="container stack" style={{ paddingTop: 28, paddingBottom: 60, maxWidth: 960, gap: 28 }}>
@@ -132,7 +137,7 @@ export default function SummaryPage() {
             <div className="row between">
               <h2>{isOwnProfile ? 'Teams you signed up' : `Teams signed up by ${summary.user.display_name}`}</h2>
               {isOwnProfile && (
-                <Link className="btn small" to="/signup" style={{ display: 'grid', placeItems: 'center', minHeight: 34 }}>
+                <Link className="btn small" to={path('/signup')} style={{ display: 'grid', placeItems: 'center', minHeight: 34 }}>
                   + Sign up another team
                 </Link>
               )}
@@ -147,7 +152,7 @@ export default function SummaryPage() {
                 </div>
                 {isOwnProfile && (
                   <div>
-                    <Link className="btn primary" to="/signup" style={{ display: 'inline-grid', placeItems: 'center' }}>
+                    <Link className="btn primary" to={path('/signup')} style={{ display: 'inline-grid', placeItems: 'center' }}>
                       Sign up a team
                     </Link>
                   </div>
@@ -166,7 +171,7 @@ export default function SummaryPage() {
                       </div>
                       <Link
                         className="badge-accent"
-                        to={`/?team=${t.id}`}
+                        to={path(`?team=${t.id}`)}
                         title="View team in markets"
                         style={{ flex: 'none', textDecoration: 'none' }}
                       >
@@ -177,7 +182,7 @@ export default function SummaryPage() {
                     <div className="dim small" style={{ minHeight: 36 }}>{t.idea}</div>
 
                     <div className="row" style={{ gap: 8, paddingTop: 6, borderTop: '1px solid var(--border)' }}>
-                      <Link className="btn small" to={`/reports/${t.id}`} style={{ minHeight: 32, padding: '0 10px', fontSize: 12, display: 'grid', placeItems: 'center' }}>
+                      <Link className="btn small" to={path(`/reports/${t.id}`)} style={{ minHeight: 32, padding: '0 10px', fontSize: 12, display: 'grid', placeItems: 'center' }}>
                         Scout Report
                       </Link>
                       {t.demo_url && (
@@ -259,7 +264,7 @@ export default function SummaryPage() {
                 </div>
                 {filter === 'all' && (
                   <div>
-                    <Link className="btn primary" to="/" style={{ display: 'inline-grid', placeItems: 'center' }}>
+                    <Link className="btn primary" to={path()} style={{ display: 'inline-grid', placeItems: 'center' }}>
                       Browse Markets
                     </Link>
                   </div>
@@ -291,6 +296,7 @@ export default function SummaryPage() {
 }
 
 function TradeRow({ bet }: { bet: UserBet }) {
+  const path = useAttendeePath();
   const isWon = bet.status === 'won';
   const isLost = bet.status === 'lost';
   const isOpen = bet.status === 'open';
@@ -310,7 +316,7 @@ function TradeRow({ bet }: { bet: UserBet }) {
         <div className="row" style={{ gap: 8, flexWrap: 'nowrap' }}>
           <span className="dot" style={{ background: bet.team_color, flex: 'none' }} />
           <Link
-            to={`/reports/${bet.team_id}`}
+            to={path(`/reports/${bet.team_id}`)}
             title="View Scout report"
             style={{
               fontWeight: 600,
@@ -380,7 +386,7 @@ function TradeRow({ bet }: { bet: UserBet }) {
       <div style={{ flex: '0 0 80px', display: 'flex', justifyContent: 'flex-end' }}>
         <Link
           className="btn small"
-          to={`/?market=${bet.market_id}&team=${bet.team_id}`}
+          to={path(`?market=${bet.market_id}&team=${bet.team_id}`)}
           title="Open market chart and order book"
           style={{ minHeight: 32, padding: '0 10px', fontSize: 12, display: 'grid', placeItems: 'center' }}
         >

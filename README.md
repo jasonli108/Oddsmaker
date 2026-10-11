@@ -32,7 +32,8 @@ backend/            FastAPI
   tests/
 frontend/           Vite + React + TypeScript                   -> stream B
   src/api/            client.ts, types.ts, schema.d.ts (generated, don't edit)
-  src/pages/          Markets, Scout reports, Leaderboard, Sign up
+  src/pages/          attendee app: Markets, Scout reports, Leaderboard, Sign up
+                      host: Landing, setup/ (three screens), Host page
   src/components/
 db/schema.sql       seven tables, hypertable, continuous aggregate
 docker-compose.yml  local TimescaleDB
@@ -56,6 +57,17 @@ Tests never use `DATABASE_URL`. They create and wipe their own `oddsmaker_test` 
 
 API keys go in `backend/.env` (never committed). See `backend/.env.example` for every setting.
 
+**Where to go once it's running**
+
+| Address | What |
+| --- | --- |
+| `http://localhost:5173/` | Landing page for hackathon hosts |
+| `/setup` | Host setup: paste the event link, confirm details, launch |
+| `/e/<event-slug>` | The attendee app: Markets, Scout reports, Leaderboard, Sign up. The slug only names the event in the link |
+| `/host` | Host page: live numbers and winner picking. Asks for `HOST_PASSWORD` |
+
+The share link and QR code on the last setup screen use the address the app is served from. Set `VITE_PUBLIC_URL` in `frontend/.env` if attendees reach it some other way (a tunnel, a deployed domain).
+
 ## API
 
 All routes are under `/api`. Shapes are defined in `backend/app/schemas.py`.
@@ -74,7 +86,7 @@ All routes are under `/api`. Shapes are defined in `backend/app/schemas.py`.
 | `POST /users`, `GET /users/:id` | Header | Display name in, user with a 1,000 Hackcoin balance out |
 | `GET /leaderboard` | Leaderboard tab | Users ranked by balance |
 | `POST /events/extract` | Host setup | Reads the host's event page into a draft to check. Sample data, marked as such, until Scout can read event pages |
-| `GET /event`, `PUT /event` | Header, host setup | The one event this deployment runs. Saving needs `X-Host-Password` and never creates markets |
+| `GET /event`, `PUT /event` | Header, host setup | The one event this deployment runs. Saving needs `X-Host-Password` and never creates markets. The first save sets how much Hackcoin each attendee starts with; later saves cannot change it |
 | `GET /host/summary` | Host page | Attendees, teams, bets, Hackcoin traded, a row per market, top five forecasters. Needs `X-Host-Password` |
 | `GET /health` | | Reports whether the database is connected |
 

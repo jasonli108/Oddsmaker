@@ -3,6 +3,7 @@ import { api } from '../api/client';
 import type { BetReceipt, MarketDetail, MarketTeam } from '../api/types';
 import { STAKE_PRESETS } from '../config';
 import { coin, multiple, pct } from '../format';
+import { useEvent } from '../hooks/useEvent';
 import { useUser } from '../hooks/useUser';
 import Stat from './Stat';
 
@@ -15,6 +16,7 @@ type Props = {
 
 export default function BetSlip({ market, team, onPlaced }: Props) {
   const { user, refreshUser } = useUser();
+  const { startingBalance } = useEvent();
   const [amountText, setAmountText] = useState('100');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -85,7 +87,7 @@ export default function BetSlip({ market, team, onPlaced }: Props) {
         {busy ? 'Placing…' : 'Place bet'}
       </button>
 
-      {!user && <div className="dim small">Pick a display name at the top to get your 1,000 Hackcoin.</div>}
+      {!user && <div className="dim small">Pick a display name at the top to get your {coin(startingBalance)} Hackcoin.</div>}
       {user && stake > balance && <div className="error">That's more than your balance.</div>}
       {error && <div className="error">{error}</div>}
       {receipt && (
