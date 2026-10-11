@@ -386,6 +386,8 @@ export interface components {
             market_id: string;
             /** Odds */
             odds: number;
+            /** Note */
+            note?: string | null;
         };
         /** OriginalitySection */
         OriginalitySection: {
