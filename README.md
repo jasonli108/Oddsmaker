@@ -32,7 +32,8 @@ backend/            FastAPI
   tests/
 frontend/           Vite + React + TypeScript                   -> stream B
   src/api/            client.ts, types.ts, schema.d.ts (generated, don't edit)
-  src/pages/          Markets, Scout reports, Leaderboard, Sign up
+  src/pages/          attendee app: Markets, Scout reports, Leaderboard, Sign up
+                      host: Landing, setup/ (three screens), Host page
   src/components/
 db/schema.sql       seven tables, hypertable, continuous aggregate
 docker-compose.yml  local TimescaleDB
@@ -55,6 +56,17 @@ The API needs a database. `DATABASE_URL` in `backend/.env` decides which one: th
 Tests never use `DATABASE_URL`. They create and wipe their own `oddsmaker_test` database in the local Docker Postgres, and refuse to run against anything that isn't on localhost. Without Docker running, the database tests are skipped.
 
 API keys go in `backend/.env` (never committed). See `backend/.env.example` for every setting.
+
+**Where to go once it's running**
+
+| Address | What |
+| --- | --- |
+| `http://localhost:5173/` | Landing page for hackathon hosts |
+| `/setup` | Host setup: paste the event link, confirm details, launch |
+| `/e/<event-slug>` | The attendee app: Markets, Scout reports, Leaderboard, Sign up. The slug only names the event in the link |
+| `/host` | Host page: live numbers and winner picking. Asks for `HOST_PASSWORD` |
+
+The share link and QR code on the last setup screen use the address the app is served from. Set `VITE_PUBLIC_URL` in `frontend/.env` if attendees reach it some other way (a tunnel, a deployed domain).
 
 ## API
 

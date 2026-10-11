@@ -1,20 +1,9 @@
 import { Link } from 'react-router-dom';
 import BrandBar from '../components/BrandBar';
+import SampleMarket from '../components/SampleMarket';
 import { useAttendeePath } from '../hooks/useAttendeePath';
 
 const navLink = { display: 'flex', alignItems: 'center', minHeight: 44, fontSize: 15 } as const;
-
-// The preview card is an illustration, labelled as a sample; it is not read from the API.
-const SAMPLE_TEAMS = [
-  { name: 'Team Orbit', color: '#7DB8FF', price: '31%', multiple: '3.2x' },
-  { name: 'Ledgerline', color: '#FFB454', price: '24%', multiple: '4.2x' },
-  { name: 'Parsel', color: '#D2B8FF', price: '18%', multiple: '5.6x' },
-];
-const SAMPLE_LINES = [
-  { color: '#D2B8FF', d: 'M0 62 H60 V70 H130 V66 H200 V74 H280 V70 H400' },
-  { color: '#FFB454', d: 'M0 62 H70 V56 H140 V46 H220 V50 H300 V42 H400' },
-  { color: '#7DB8FF', d: 'M0 62 H50 V50 H110 V38 H180 V28 H250 V34 H320 V18 H400' },
-];
 
 const STEPS = [
   { title: 'Paste your event link', body: 'We read your event page and pull the name, dates and prize categories for you.' },
@@ -69,36 +58,7 @@ export default function LandingPage() {
           <div className="dim" style={{ fontSize: 14 }}>Takes about two minutes. Play money only, never real wagers.</div>
         </div>
 
-        <div className="card stack" style={{ flex: '1 1 400px', minWidth: 0, borderRadius: 16, padding: 22 }}>
-          <div className="row between" style={{ flexWrap: 'nowrap', alignItems: 'baseline' }}>
-            <div style={{ fontSize: 17, fontWeight: 600 }}>Who takes 1st place overall?</div>
-            <div className="dim" style={{ fontSize: 12, flex: 'none' }}>Sample market</div>
-          </div>
-          <svg viewBox="0 0 400 110" preserveAspectRatio="none" aria-hidden style={{ display: 'block', width: '100%', height: 110 }}>
-            <g fill="none" strokeWidth={2} strokeLinejoin="round">
-              {SAMPLE_LINES.map((line) => (
-                <path key={line.color} d={line.d} stroke={line.color} vectorEffect="non-scaling-stroke" />
-              ))}
-            </g>
-          </svg>
-          <div>
-            {SAMPLE_TEAMS.map((t) => (
-              <div key={t.name} className="row" style={{ flexWrap: 'nowrap', padding: '12px 0', borderTop: '1px solid var(--border)' }}>
-                <span className="dot" aria-hidden style={{ background: t.color }} />
-                <div style={{ flex: 1, minWidth: 0, fontWeight: 500 }}>{t.name}</div>
-                <div className="mono" style={{ fontSize: 18, fontWeight: 500 }}>{t.price}</div>
-                <div className="mono dim" style={{ fontSize: 13, width: 44, textAlign: 'right' }}>{t.multiple}</div>
-              </div>
-            ))}
-          </div>
-          <div
-            className="soft"
-            style={{ background: 'var(--bg)', border: '1px solid var(--amber-border)', borderRadius: 10, padding: '12px 14px', fontSize: 14 }}
-          >
-            <span style={{ color: 'var(--amber)', fontWeight: 500 }}>Scout</span> moved Ledgerline from 22% to 24% after
-            finding no similar project on the web.
-          </div>
-        </div>
+        <SampleMarket />
       </div>
 
       <div id="how" style={{ borderTop: '1px solid var(--border)' }}>

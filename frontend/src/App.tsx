@@ -7,15 +7,22 @@ import LandingPage from './pages/LandingPage';
 import LeaderboardPage from './pages/LeaderboardPage';
 import MarketsPage from './pages/MarketsPage';
 import ReportsPage from './pages/ReportsPage';
-import SetupPage from './pages/SetupPage';
 import SignUpPage from './pages/SignUpPage';
+import SetupLayout from './pages/setup/SetupLayout';
+import SetupLinkPage from './pages/setup/SetupLinkPage';
+import SetupLivePage from './pages/setup/SetupLivePage';
+import SetupReviewPage from './pages/setup/SetupReviewPage';
 
 export default function App() {
   return (
     <Routes>
       {/* For hosts. */}
       <Route path="/" element={<LandingPage />} />
-      <Route path="/setup/*" element={<SetupPage />} />
+      <Route path="/setup" element={<SetupLayout />}>
+        <Route index element={<SetupLinkPage />} />
+        <Route path="review" element={<SetupReviewPage />} />
+        <Route path="live" element={<SetupLivePage />} />
+      </Route>
       <Route path="/host" element={<HostLayout />} />
 
       {/* For attendees. The slug names the event in the link; it is not used to fetch anything. */}
