@@ -71,7 +71,7 @@ Reads the event's name, organisers, location, start time, submission deadline an
 
 ## Event pages
 
-**`pipeline.extract_event(url) -> EventDraft`** is what the host flow (`app/events/service.py`, `POST /api/events/extract`) calls when `SCOUT_ENABLED` is true. One Nimble extract over plain HTTP, then `read_event_page`, then the code:
+**`pipeline.extract_event(url) -> EventDraft`** is what the host flow (`app/events/service.py`, `POST /api/events/extract`) calls whenever `NIMBLE_API_KEY` and `GEMINI_API_KEY` are both set. It does not wait for `SCOUT_ENABLED`, which switches the timed refresh and the report at sign-up; without the keys the host flow serves a sample draft. One Nimble extract over plain HTTP, then `read_event_page`, then the code:
 
 - keeps a time only if it has a UTC offset; a time without one counts as missing, because saving it would assume UTC
 - maps each category to a market with the host flow's `market_id_for` ("Best use of Gemini API" becomes `gemini`; Snowflake gets none)

@@ -44,19 +44,30 @@ def market_id_for(category_name: str) -> MarketId | None:
     return None
 
 
+def can_read_event_pages() -> bool:
+    """Whether Scout can read a host's event page: it needs its Nimble key and its Gemini key.
+
+    SCOUT_ENABLED is not part of this. That switch is for the work Scout does unasked (a report at
+    every sign-up, a refresh every 30 minutes), which is what spends credits on a local run. This
+    read is one Nimble extract and one Gemini call, made when a host presses "Read my event page".
+    """
+    settings = get_settings()
+    return bool(settings.nimble_api_key and settings.gemini_api_key)
+
+
 async def extract_event(url: str) -> EventDraft:
     """Read the host's event page into a draft for them to check.
 
-    Uses Scout's extract_event(url) -> EventDraft from app.scout.pipeline once it exists and
-    SCOUT_ENABLED is true. Until then it serves canned data marked is_sample. If Scout is on but
-    the read fails, the draft comes back empty with every field listed as missing: never canned
-    data dressed up as the host's page.
+    Scout does the reading (scout.pipeline.extract_event) whenever it has its keys. Without them
+    this serves canned data marked is_sample. If Scout has its keys but the read fails, the draft
+    comes back empty with every field listed as missing: never canned data dressed up as the
+    host's page.
     """
-    scout_extract = getattr(pipeline, "extract_event", None)
-    if not get_settings().scout_enabled or scout_extract is None:
+    if not can_read_event_pages():
+        log.info("NIMBLE_API_KEY and GEMINI_API_KEY are not both set, so %s gets the sample draft", url)
         return sample.event_draft(url)
     try:
-        draft: EventDraft = await scout_extract(url)
+        draft: EventDraft = await pipeline.extract_event(url)
     except Exception:
         log.exception("Scout could not read the event page %s", url)
         return EventDraft(name="", source_url=url, missing=list(_DRAFT_FIELDS))

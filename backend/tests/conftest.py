@@ -25,6 +25,9 @@ if urlparse(TEST_DATABASE_URL).hostname not in ("localhost", "127.0.0.1"):
 os.environ["DATABASE_URL"] = TEST_DATABASE_URL
 os.environ["HOST_PASSWORD"] = "test-host-password"
 os.environ["SCOUT_ENABLED"] = "false"
+# No keys, whatever backend/.env holds: a test must never reach Nimble or Gemini.
+os.environ["NIMBLE_API_KEY"] = ""
+os.environ["GEMINI_API_KEY"] = ""
 
 from fastapi.testclient import TestClient  # noqa: E402
 

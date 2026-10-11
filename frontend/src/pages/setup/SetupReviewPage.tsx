@@ -156,9 +156,9 @@ function ReviewForm({ draft }: { draft: EventDraft }) {
           <div className="card soft" style={{ borderColor: 'var(--amber-border)', borderRadius: 10, padding: '12px 16px', fontSize: 15 }}>
             {draft.is_sample ? (
               <>
-                <span style={{ color: AMBER, fontWeight: 500 }}>Sample details.</span> Scout can't read event pages yet,
-                so these are examples and were not read from {shortLink(draft.source_url!)}. Replace anything that isn't
-                your event.
+                <span style={{ color: AMBER, fontWeight: 500 }}>Sample details.</span> Scout isn't set up on this
+                server (it needs its Nimble and Gemini keys), so these are examples and were not read from{' '}
+                {shortLink(draft.source_url!)}. Replace anything that isn't your event.
               </>
             ) : readFailed ? (
               <>
