@@ -384,6 +384,22 @@ def test_leaderboard_ties_share_a_rank(client):
     ]
 
 
+def test_team_leaderboard_ranked_by_scout_odds(client):
+    res = client.get("/api/leaderboard/teams")
+    assert res.status_code == 200
+    teams = res.json()
+    assert len(teams) > 0
+    odds = [t["scout_odds"] for t in teams]
+    assert odds == sorted(odds, reverse=True)
+
+    res_market = client.get("/api/leaderboard/teams", params={"market": "overall"})
+    assert res_market.status_code == 200
+    market_teams = res_market.json()
+    assert all(t["market_id"] == "overall" for t in market_teams)
+    market_odds = [t["scout_odds"] for t in market_teams]
+    assert market_odds == sorted(market_odds, reverse=True)
+
+
 # ---- Scout reports -----------------------------------------------------------
 
 

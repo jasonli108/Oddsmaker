@@ -64,6 +64,18 @@ class LeaderboardEntry(BaseModel):
     balance: float
 
 
+class TeamLeaderboardEntry(BaseModel):
+    rank: int
+    team_id: str
+    name: str
+    idea: str
+    color: str
+    scout_odds: float  # fraction between 0 and 1
+    market_id: str
+    market_category: str
+    market_price: float
+
+
 BetStatus = Literal["open", "won", "lost"]
 
 

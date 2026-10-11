@@ -13,6 +13,7 @@ import type {
   ResolveResult,
   Team,
   TeamCreate,
+  TeamLeaderboardEntry,
   TeamReport,
   User,
   UserBet,
@@ -95,6 +96,10 @@ export const api = {
   getUserSummary: (id: string) => request<UserSummary>(`/users/${id}/summary`),
   getUserBets: (id: string) => request<UserBet[]>(`/users/${id}/bets`),
   getLeaderboard: (eventSlug: string) => request<LeaderboardEntry[]>(`/leaderboard${inEvent(eventSlug)}`),
+  getTeamLeaderboard: (eventSlug: string, marketId?: string) =>
+    request<TeamLeaderboardEntry[]>(
+      `/leaderboard/teams${inEvent(eventSlug)}${marketId ? `&market=${encodeURIComponent(marketId)}` : ''}`
+    ),
 
   getEvent: (slug: string) => request<EventInfo>(`/events/${encodeURIComponent(slug)}`),
   /** The first event this deployment ran: what "See a live market" on the landing page opens. */

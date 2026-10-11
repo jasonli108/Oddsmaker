@@ -37,6 +37,7 @@ from app.schemas import (
     ScoutFeedItem,
     Team,
     TeamCreate,
+    TeamLeaderboardEntry,
     TeamSeries,
     User,
     UserBet,
@@ -561,6 +562,110 @@ async def get_leaderboard(limit: int = 100, event_slug: str | None = None) -> li
         LeaderboardEntry(rank=r["rank"], user_id=str(r["id"]), display_name=r["display_name"], balance=float(r["balance"]))
         for r in rows
     ]
+
+
+async def get_team_leaderboard(
+    limit: int = 100, event_slug: str | None = None, market_id: str | None = None
+) -> list[TeamLeaderboardEntry]:
+    """Teams ranked by highest percentage of Scout's odds.
+
+    If market_id is given, ranks teams within that prize market.
+    Otherwise across all markets in the event, each team is represented by its highest Scout odds.
+    """
+    async with db.get_pool().connection() as conn:
+        if market_id:
+            market_rows = await _fetchall(
+                conn,
+                f"SELECT id, category FROM markets WHERE id = %s AND {_IN_EVENT}",
+                (market_id, event_slug, event_slug),
+            )
+        else:
+            market_rows = await _fetchall(
+                conn,
+                f"SELECT id, category FROM markets WHERE {_IN_EVENT} "
+                "ORDER BY coalesce(array_position(%s::text[], id), 999), sort_order, id",
+                (event_slug, event_slug, _MARKET_ORDER),
+            )
+
+        if not market_rows:
+            return []
+
+        market_ids = [m["id"] for m in market_rows]
+        market_map = {m["id"]: m["category"] for m in market_rows}
+
+        rows = await _fetchall(
+            conn,
+            "SELECT p.market_id, p.team_id, t.name, t.idea, t.color, p.seed, p.staked "
+            "FROM positions p JOIN teams t ON t.id = p.team_id "
+            "WHERE p.market_id = ANY(%s) "
+            "ORDER BY p.market_id, t.name",
+            (market_ids,),
+        )
+
+    by_market: dict[str, list[dict]] = {mid: [] for mid in market_ids}
+    for r in rows:
+        by_market[r["market_id"]].append(r)
+
+    candidates_by_team: dict[str, list[dict]] = {}
+    for mid, m_rows in by_market.items():
+        if not m_rows:
+            continue
+        seed_total = sum(float(r["seed"]) for r in m_rows)
+        weights = {r["team_id"]: float(r["seed"] + r["staked"]) for r in m_rows}
+        prices = pricing.prices_from_weights(weights, get_settings().price_floor)
+
+        for r in m_rows:
+            tid = r["team_id"]
+            odds = float(r["seed"]) / seed_total if seed_total > 0 else (1.0 / len(m_rows))
+            entry = {
+                "team_id": tid,
+                "name": r["name"],
+                "idea": r["idea"],
+                "color": r["color"],
+                "scout_odds": odds,
+                "market_id": mid,
+                "market_category": market_map.get(mid, mid),
+                "market_price": prices.get(tid, 0.0),
+            }
+            candidates_by_team.setdefault(tid, []).append(entry)
+
+    if not candidates_by_team:
+        return []
+
+    if market_id:
+        chosen_entries = [c[0] for c in candidates_by_team.values() if c]
+    else:
+        chosen_entries = [
+            max(c, key=lambda x: (x["scout_odds"], x["market_price"]))
+            for c in candidates_by_team.values()
+        ]
+
+    chosen_entries.sort(key=lambda x: (-x["scout_odds"], -x["market_price"], x["name"]))
+    chosen_entries = chosen_entries[:limit]
+
+    result: list[TeamLeaderboardEntry] = []
+    current_rank = 1
+    for i, e in enumerate(chosen_entries):
+        if i > 0:
+            prev = chosen_entries[i - 1]
+            if round(e["scout_odds"], 4) < round(prev["scout_odds"], 4):
+                current_rank = i + 1
+        result.append(
+            TeamLeaderboardEntry(
+                rank=current_rank,
+                team_id=e["team_id"],
+                name=e["name"],
+                idea=e["idea"],
+                color=e["color"],
+                scout_odds=round(e["scout_odds"], 4),
+                market_id=e["market_id"],
+                market_category=e["market_category"],
+                market_price=round(e["market_price"], 4),
+            )
+        )
+
+    return result
+
 
 
 async def get_user_summary(user_id: str) -> UserSummary | None:
