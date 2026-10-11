@@ -1,0 +1,21 @@
+# Local stand-in for Tiger Data so everyone can develop without sharing one cloud database.
+# For the deployed app, point DATABASE_URL at the Tiger Cloud service instead.
+services:
+  db:
+    image: timescale/timescaledb:latest-pg17
+    environment:
+      POSTGRES_USER: oddsmaker
+      POSTGRES_PASSWORD: oddsmaker
+      POSTGRES_DB: oddsmaker
+    ports:
+      - "5432:5432"
+    volumes:
+      - dbdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U oddsmaker -d oddsmaker"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+volumes:
+  dbdata:

@@ -1,0 +1,17 @@
+.DS_Store
+
+# secrets
+.env
+.env.local
+
+# python
+backend/.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# node
+node_modules/
+frontend/dist/
+frontend/openapi.json
+*.tsbuildinfo

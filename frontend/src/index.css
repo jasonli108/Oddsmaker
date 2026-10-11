@@ -1,0 +1,220 @@
+/* Design tokens from the build spec. Use the variables; don't hard-code colours in components. */
+:root {
+  --bg: #0f1214;
+  --card: #171b1f;
+  --border: #262c32;
+  --border-strong: #343b43;
+  --text: #eceff1;
+  --text-dim: #a9b4bd;
+  --accent: #3ddc97;
+  --on-accent: #08210f;
+  --amber: #ffc876;
+  --amber-border: #5a4520;
+  --danger: #f29bb7;
+
+  --font-sans: 'IBM Plex Sans', system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+  --radius-card: 12px;
+  --radius-control: 8px;
+  --tap: 44px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 15px;
+  line-height: 1.45;
+}
+
+h1,
+h2 {
+  margin: 0;
+  font-weight: 600;
+}
+h1 {
+  font-size: 32px;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+}
+h2 {
+  font-size: 16px;
+}
+
+a {
+  color: var(--text-dim);
+  text-decoration: none;
+}
+a:hover {
+  color: var(--text);
+}
+
+button,
+input {
+  font-family: inherit;
+}
+button {
+  cursor: pointer;
+}
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* Every number is set in the mono face. */
+.mono {
+  font-family: var(--font-mono);
+}
+.dim {
+  color: var(--text-dim);
+}
+.small {
+  font-size: 13px;
+}
+.error {
+  color: var(--danger);
+  font-size: 13px;
+}
+
+.container {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 0 24px;
+}
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.between {
+  justify-content: space-between;
+}
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  padding: 18px 20px;
+}
+.card.selected {
+  border-color: var(--accent);
+}
+
+.btn {
+  min-height: var(--tap);
+  padding: 0 16px;
+  border-radius: var(--radius-control);
+  border: 1px solid var(--border-strong);
+  background: transparent;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 500;
+}
+.btn.primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--on-accent);
+  font-weight: 600;
+}
+.btn.pill {
+  border-radius: 999px;
+}
+.btn.pill.active {
+  border-color: var(--text);
+  background: var(--text);
+  color: var(--bg);
+}
+
+.input {
+  width: 100%;
+  min-height: var(--tap);
+  background: var(--bg);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+  color: var(--text);
+  font-size: 15px;
+  padding: 0 14px;
+}
+
+.dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex: none;
+}
+
+.badge-amber {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--amber);
+  border: 1px solid var(--amber-border);
+  border-radius: 999px;
+  padding: 3px 10px;
+}
+
+.tabs {
+  display: flex;
+  gap: 28px;
+  flex-wrap: wrap;
+}
+.tabs a {
+  display: block;
+  padding: 14px 0;
+  font-weight: 500;
+  border-bottom: 2px solid transparent;
+}
+.tabs a.active {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+}
+
+/* Markets tab: main column plus a bet-slip sidebar that wraps under on narrow screens. */
+.two-col {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 28px;
+  align-items: flex-start;
+  padding-top: 28px;
+  padding-bottom: 48px;
+}
+.two-col > .main {
+  flex: 999 1 560px;
+  min-width: 0;
+}
+.two-col > .side {
+  flex: 1 1 340px;
+  min-width: 0;
+}
+
+.trades {
+  display: flex;
+  gap: 12px;
+  overflow-x: auto;
+  scroll-snap-type: x proximity;
+  scrollbar-width: none;
+}
+.trades::-webkit-scrollbar {
+  display: none;
+}
+.trade {
+  flex: 0 0 212px;
+  scroll-snap-align: start;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px;
+}
+.trade.scout {
+  border-color: var(--amber-border);
+}
