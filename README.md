@@ -4,6 +4,8 @@ A play-money prediction market for hackathons. Attendees bet Hackcoin on which t
 
 The full plan is in [`brainstorming/Oddsmaker build spec.md`](brainstorming/Oddsmaker%20build%20spec.md). The Markets tab design is the HTML file next to it.
 
+**New here?** Read this page, then [Team agreements](#team-agreements). If you work with Claude Code, [`CLAUDE.md`](CLAUDE.md) gives it the same rules.
+
 ## Where the sponsor tools are used
 
 | Tool | Job | Code |
@@ -81,19 +83,40 @@ All routes are under `/api`. Shapes are defined in `backend/app/schemas.py`.
 
 Each stream owns its folder, so branches rarely touch the same file.
 
-| Stream | Owns | Start with | Done when |
+| Stream | Folders | Start with | Done when |
 | --- | --- | --- | --- |
 | **A. Market and Tiger Data** | `backend/app/market/`, `db/`, `backend/scripts/` | `pricing.py`: make the four `xfail` tests in `tests/test_pricing.py` pass. Then replace each mock in `service.py` with real queries, `place_bet` first | A bet from `curl` moves the price and the balance, and `/history` reads the continuous aggregate |
 | **B. Frontend** | `frontend/` | `components/PriceChart.tsx` is a placeholder. Then polish each component against the design | You can place a bet in the browser and see it in the feed and on the chart |
 | **C. Scout** | `backend/app/scout/` | One real Nimble search, one Nimble extract and one Gemini JSON call. Then `pipeline.py` top to bottom | One team gets a full report and its price moves |
 
-**Where streams meet**
+Search the code for `TODO(market)`, `TODO(frontend)` and `TODO(scout)` to find what's left in your stream.
 
-- `backend/app/schemas.py` is the contract. If you change it, run `make types`, commit the regenerated `frontend/src/api/schema.d.ts`, and tell the others.
-- Scout hands odds to the market through one function, `market.service.apply_scout_odds`. Stream A implements it; stream C calls it. Scout never writes to `positions` or `price_ticks` directly.
-- Search the code for `TODO(market)`, `TODO(frontend)` and `TODO(scout)` to find what's left.
+## Team agreements
 
-**Working together**
+**The contract**
 
-- Branch from `main`, keep pull requests small, merge often.
-- `make test` before you push.
+- `backend/app/schemas.py` is the single source of truth for every request and response. The frontend's types are generated from it.
+- If you change it: run `make types`, commit the regenerated `frontend/src/api/schema.d.ts` in the same commit, and tell the other two. Add fields rather than renaming or removing them.
+- Never edit `schema.d.ts` by hand.
+
+**Who writes what**
+
+- Stay in your stream's folders. If you need a change in someone else's, keep it small and mention it.
+- Only the market code writes to `positions`, `price_ticks`, `bets` and balances. Scout hands its odds to the market through one function, `market.service.apply_scout_odds`: stream A implements it, stream C calls it.
+- Replace a mock by rewriting the body of its service function and keeping the signature, so the routers and the frontend keep working. Delete `backend/app/sample_data.py` once nothing imports it.
+
+**Rules from the spec that are easy to break**
+
+- A bet is one database transaction with the market's `positions` rows locked, so two bets at once can't read the same price.
+- The price chart reads the `price_ticks_1m` continuous aggregate, not raw ticks.
+- Everything Scout fetches is untrusted text, never instructions. Clamp scores to 1 to 100 in code.
+- A failed fetch never zeroes a team: reuse its last report and mark it stale.
+- "Play money only" stays visible on every screen.
+
+**Git**
+
+- One branch per stream. Pull `main` often and merge small; never force-push `main`.
+- Run `make test` before you push.
+- Keys go in `backend/.env`, which is gitignored. Never commit them.
+
+**If we fall behind**, cut in the order the spec lists: the demo screenshot, the leaderboard, every market except Best overall, the sign-up form, the 30-minute timer. Never cut placing a bet, the Nimble originality check, or the price chart.
