@@ -32,8 +32,8 @@ from app.scout.nimble import PageExtract, SearchResult
 
 # Enough of a demo page or event page to judge it, without flooding the prompt.
 PAGE_TEXT_CHARS = 6000
-# Tried in order when a model answers 5xx. gemini-3.8-flash and 3.6-flash both returned 503
-# "high demand" in testing, sometimes together; a 503 comes back in under a second.
+# Tried in order when a model answers 5xx or 429. gemini-3.8-flash and 3.6-flash both returned
+# 503 "high demand" in testing, sometimes together; a 503 comes back in under a second.
 FALLBACK_MODELS = ["gemini-3.6-flash", "gemini-3.5-flash"]
 # One quick retry per model. The SDK's default backoff took about a minute per model, which a
 # host waiting on the event page can't sit through.
@@ -199,13 +199,17 @@ def build_evidence(
             f"{repo.commits_last_30_min} commits and {repo.files_changed_last_30_min} files changed "
             "in the last 30 minutes."
         )
+    elif team.repo_url:
+        repo_text = "Could not be read: the link isn't a public GitHub repo, or our fetch failed."
     else:
-        repo_text = "No repo stats (no repo link, or the fetch failed)."
+        repo_text = "No repo link submitted."
     if demo:
         load = f"{demo.load_ms} ms" if demo.load_ms is not None else "unknown"
         demo_text = f"Up: {'yes' if demo.is_up else 'no'}. Load time: {load}. URL: {demo.url}"
+    elif team.demo_url:
+        demo_text = "Our check of the demo link failed on our side. Don't treat the demo as missing or down."
     else:
-        demo_text = "No demo checked (no demo link, or the fetch failed)."
+        demo_text = "No demo link submitted."
     sections = [
         _untrusted("team", f"Name: {team.name}\nOne-line idea: {team.idea}"),
         "Similar projects found by web search:\n"
@@ -273,8 +277,10 @@ async def _generate(system: str, contents: list, schema: type[BaseModel] | None 
     for model in dict.fromkeys([settings.gemini_model, *FALLBACK_MODELS]):
         try:
             return await client.aio.models.generate_content(model=model, contents=contents, config=config)
-        except errors.ServerError as e:
-            failure = GeminiError(f"{model}: {e}")  # overloaded or down: try the next model
         except errors.APIError as e:
-            raise GeminiError(f"{model}: {e}") from e
+            # 5xx is an overloaded model. 429 is a used-up quota (the free tier allows 20 calls a
+            # day per model), and each model has its own. Either way the next model may answer.
+            if not isinstance(e, errors.ServerError) and e.code != 429:
+                raise GeminiError(f"{model}: {e}") from e
+            failure = GeminiError(f"{model}: {e}")
     raise failure

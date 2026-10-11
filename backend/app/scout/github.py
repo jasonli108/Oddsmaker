@@ -9,7 +9,9 @@ Four requests per repo, so six teams every 30 minutes (48 an hour) fit without a
 - commits since 30 minutes ago, on the default branch
 - one compare from before the oldest of those commits to the newest, for files changed
 
-Raise GitHubError on failure; the pipeline decides what a failed fetch means.
+Raise GitHubError on failure; the pipeline decides what a failed fetch means. RepoNotFound, a
+GitHubError, means the link will never work, so the pipeline treats it as no repo rather than
+as a failed fetch.
 """
 
 import asyncio
@@ -28,6 +30,10 @@ TIMEOUT_SECONDS = 20
 
 class GitHubError(Exception):
     pass
+
+
+class RepoNotFound(GitHubError):
+    """The link isn't a public GitHub repo (another host, private, or mistyped). Retrying won't help."""
 
 
 @dataclass
@@ -64,7 +70,7 @@ def parse_repo_url(url: str) -> tuple[str, str]:
     """owner and repo from https://github.com/owner/repo, with or without .git or a /tree/... path."""
     match = re.search(r"github\.com[/:]([\w.-]+)/([\w.-]+)", url)
     if not match:
-        raise GitHubError(f"not a GitHub repo link: {url}")
+        raise RepoNotFound(f"not a GitHub repo link: {url}")
     owner, repo = match.groups()
     return owner, repo.removesuffix(".git")
 
@@ -106,8 +112,10 @@ async def _get(client: httpx.AsyncClient, path: str, **params) -> httpx.Response
         raise GitHubError(f"{path}: {e!r}") from e
     if response.status_code in (204, 409):
         return None
+    if response.status_code == 404:
+        raise RepoNotFound(f"{path}: not found (private or mistyped repo)")
     if response.status_code != 200:
-        # 404 is a private or mistyped repo; 403 or 429 with x-ratelimit-remaining 0 is the hourly limit.
+        # 403 or 429 with x-ratelimit-remaining 0 is the hourly limit.
         remaining = response.headers.get("x-ratelimit-remaining")
         raise GitHubError(f"{path}: HTTP {response.status_code} (rate limit left: {remaining}): {response.text[:200]}")
     return response
