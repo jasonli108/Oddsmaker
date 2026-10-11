@@ -7,7 +7,7 @@ import PriceChart from '../components/PriceChart';
 import ScoutSummary from '../components/ScoutSummary';
 import TeamRow from '../components/TeamRow';
 import TradeFeed from '../components/TradeFeed';
-import { coin } from '../format';
+import { coin, plural } from '../format';
 import { usePolling } from '../hooks/usePolling';
 
 export default function MarketsPage() {
@@ -55,9 +55,9 @@ export default function MarketsPage() {
             <>
               <h1>{m.title}</h1>
               <div className="row dim small" style={{ gap: 20 }}>
-                <div>{m.totals.team_count} teams</div>
+                <div>{plural(m.totals.team_count, 'team')}</div>
                 <div>{coin(m.totals.hackcoin_traded)} Hackcoin traded</div>
-                <div>{m.totals.forecaster_count} forecasters</div>
+                <div>{plural(m.totals.forecaster_count, 'forecaster')}</div>
                 <div>{closed ? 'Resolved' : 'Resolves when judges announce'}</div>
               </div>
               {market.error && (

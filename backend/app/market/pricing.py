@@ -10,26 +10,59 @@ The rules (build spec, "Market rules"):
 
 Worked example: Orbit's seed is 540 of 2,000, so its price is 27%. A 100 stake locks 3.7x.
 Orbit's weight becomes 640 of 2,100, so the next price is 30.5%.
-
-tests/test_pricing.py encodes that example; it is marked xfail until these are implemented.
 """
+
+_EPSILON = 1e-12
 
 
 def prices_from_weights(weights: dict[str, float], floor: float) -> dict[str, float]:
-    """Map team_id -> price from team_id -> weight (seed + staked), applying the price floor."""
-    raise NotImplementedError("TODO(market)")
+    """Map team_id -> price from team_id -> weight (seed + staked), applying the price floor.
+
+    Prices always sum to 1. A team below the floor is lifted to it, and the teams above the
+    floor give up that share between them in proportion to their weight.
+    """
+    if not weights:
+        return {}
+    total = sum(weights.values())
+    if total <= 0:
+        return {team: 1 / len(weights) for team in weights}
+
+    # With more than 1/floor teams the floor cannot hold for everyone; an even split is the cap.
+    floor = min(floor, 1 / len(weights))
+    floored: set[str] = set()
+    while True:
+        free = {team: w for team, w in weights.items() if team not in floored}
+        share = 1 - floor * len(floored)
+        free_total = sum(free.values())
+        prices = {team: (w / free_total) * share for team, w in free.items()} if free_total > 0 else {}
+        newly_below = [team for team in free if prices.get(team, 0) < floor - _EPSILON]
+        if not newly_below:
+            break
+        # Lifting these teams shrinks everyone else, which can push another team under: go again.
+        floored.update(newly_below)
+    return {team: floor if team in floored else prices[team] for team in weights}
 
 
 def multiple_for(price: float) -> float:
     """The payout multiple locked in by a bet placed at `price`."""
-    raise NotImplementedError("TODO(market)")
+    return 1 / price
 
 
 def split_seed(odds: dict[str, float], seed_total: float) -> dict[str, float]:
     """Split a market's seed across teams in proportion to Scout's odds."""
-    raise NotImplementedError("TODO(market)")
+    if not odds:
+        return {}
+    total = sum(odds.values())
+    if total <= 0:
+        return {team: seed_total / len(odds) for team in odds}
+    return {team: seed_total * o / total for team, o in odds.items()}
 
 
 def odds_from_scores(scores: dict[str, int]) -> dict[str, float]:
     """Turn Scout's per-team scores for one category into odds: score / sum of all teams' scores."""
-    raise NotImplementedError("TODO(market)")
+    if not scores:
+        return {}
+    total = sum(scores.values())
+    if total <= 0:
+        return {team: 1 / len(scores) for team in scores}
+    return {team: s / total for team, s in scores.items()}

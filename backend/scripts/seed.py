@@ -3,7 +3,8 @@
     cd backend && .venv/bin/python -m scripts.seed
 
 Every team starts with an even share of each market's seed. Scout's first run replaces that
-split with its own odds.
+split with its own odds. Each market also gets one opening price tick per team, so the price
+chart has a line from the start instead of staying empty until the first bet.
 """
 
 import sys
@@ -12,6 +13,7 @@ import psycopg
 
 from app import sample_data
 from app.config import get_settings
+from app.market import pricing
 
 
 def main() -> None:
@@ -38,6 +40,17 @@ def main() -> None:
                     "ON CONFLICT (market_id, team_id) DO NOTHING",
                     (m.id, t.id, seed_each),
                 )
+        for m in sample_data.MARKETS:
+            if conn.execute("SELECT 1 FROM price_ticks WHERE market_id = %s LIMIT 1", (m.id,)).fetchone():
+                continue
+            rows = conn.execute(
+                "SELECT team_id, seed + staked FROM positions WHERE market_id = %s", (m.id,)
+            ).fetchall()
+            prices = pricing.prices_from_weights({team: float(w) for team, w in rows}, settings.price_floor)
+            conn.cursor().executemany(
+                "INSERT INTO price_ticks (market_id, team_id, price, source) VALUES (%s, %s, %s, 'scout')",
+                [(m.id, team, price) for team, price in prices.items()],
+            )
     print(f"Seeded {len(sample_data.MARKETS)} markets and {len(sample_data.TEAMS)} teams.")
 
 

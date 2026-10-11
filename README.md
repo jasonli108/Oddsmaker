@@ -16,7 +16,7 @@ The full plan is in [`brainstorming/Oddsmaker build spec.md`](brainstorming/Odds
 
 ## Status
 
-This is the skeleton. Every endpoint answers with **sample data** in its final shape, the database schema is real, and the frontend's four tabs are wired to the API. Nothing is persisted yet: placing a bet returns a receipt but does not move the price.
+Markets, bets, players and the team list are **real**: a bet is stored in Tiger Data and moves the price and your balance. Price history, the trade feed, team sign-up, resolving a market, the leaderboard and Scout reports still answer with **sample data** in their final shape.
 
 ## Layout
 
@@ -49,7 +49,9 @@ make frontend   # http://localhost:5173  (proxies /api to the backend)
 make test       # backend tests and frontend typecheck
 ```
 
-The API runs without a database while the endpoints are mocked, so `make db` is optional for frontend work. To use Tiger Cloud instead of Docker, put its connection string in `DATABASE_URL` in `backend/.env` and run `make db-init db-seed`.
+The API needs a database. `DATABASE_URL` in `backend/.env` decides which one: the local Docker database from `make db`, or Tiger Cloud. `make db-init` and `make db-seed` act on whichever it points at, so check it before you run them.
+
+Tests never use `DATABASE_URL`. They create and wipe their own `oddsmaker_test` database in the local Docker Postgres, and refuse to run against anything that isn't on localhost. Without Docker running, the database tests are skipped.
 
 API keys go in `backend/.env` (never committed). See `backend/.env.example` for every setting.
 
