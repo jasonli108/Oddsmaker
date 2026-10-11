@@ -55,7 +55,7 @@ export default function MarketsPage() {
           )}
         </div>
 
-        <PriceChart history={history.data} />
+        <PriceChart history={history.data} pickedTeamId={picked?.team_id} />
 
         <div className="stack" style={{ gap: 8 }}>
           <div className="row between dim" style={{ fontSize: 12, padding: '0 18px' }}>
