@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Link, NavLink, useParams } from 'react-router-dom';
 import { api } from '../api/client';
 import type { MarketTeam, ScoutReport, TeamReport } from '../api/types';
@@ -64,6 +65,10 @@ export default function ReportsPage() {
             marketTeam={teams.find((t) => t.team_id === report.data?.team.id)}
             marketOpen={market.data?.status === 'open'}
             scoreKey={headline?.score_key ?? HEADLINE_SCORE_KEY}
+            onScouted={() => {
+              report.refresh();
+              market.refresh();
+            }}
           />
         )}
       </div>
@@ -125,6 +130,41 @@ function TeamLink({ team, selected }: { team: MarketTeam; selected: boolean }) {
   );
 }
 
+/**
+ * Scout writes a new report on this one team now. Anyone can press it; the server allows one run
+ * per team every 10 minutes and says how long to wait otherwise.
+ */
+function RunScout({ teamId, onDone }: { teamId: string; onDone: () => void }) {
+  const [running, setRunning] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function run() {
+    setRunning(true);
+    setError(null);
+    try {
+      await api.runScout(teamId);
+      onDone();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setRunning(false);
+    }
+  }
+
+  return (
+    <div className="stack" style={{ gap: 6, alignItems: 'flex-end', maxWidth: 360 }}>
+      <button className="btn" style={{ minHeight: 48 }} onClick={run} disabled={running}>
+        {running ? 'Scout is working, up to a minute…' : 'Run Scout on this team'}
+      </button>
+      {error && (
+        <div className="error" role="alert" style={{ fontSize: 13 }}>
+          {error}
+        </div>
+      )}
+    </div>
+  );
+}
+
 type ReportProps = {
   data: TeamReport;
   /** Missing while a newly signed-up team is not in the market yet. */
@@ -132,9 +172,11 @@ type ReportProps = {
   marketOpen: boolean;
   /** Which of Scout's scores prices the market shown beside the report. */
   scoreKey: string;
+  /** Called after Run Scout writes a new report. */
+  onScouted: () => void;
 };
 
-function Report({ data, marketTeam, marketOpen, scoreKey }: ReportProps) {
+function Report({ data, marketTeam, marketOpen, scoreKey, onScouted }: ReportProps) {
   const { team, report } = data;
   const history = data.odds_history.filter((p) => p.market_id === scoreKey);
   const path = useAttendeePath();
@@ -151,15 +193,18 @@ function Report({ data, marketTeam, marketOpen, scoreKey }: ReportProps) {
           <h1 style={{ margin: '4px 0 6px' }}>{team.name}</h1>
           <div className="soft">{team.idea}</div>
         </div>
-        {marketTeam && marketOpen && (
-          <Link
-            className="btn primary"
-            to={path(`?team=${team.id}`)}
-            style={{ display: 'grid', placeItems: 'center', minHeight: 48, padding: '0 22px', fontSize: 15 }}
-          >
-            Bet on {team.name} at {pct(marketTeam.price)}
-          </Link>
-        )}
+        <div className="row" style={{ gap: 12, alignItems: 'flex-start', justifyContent: 'flex-end' }}>
+          <RunScout key={team.id} teamId={team.id} onDone={onScouted} />
+          {marketTeam && marketOpen && (
+            <Link
+              className="btn primary"
+              to={path(`?team=${team.id}`)}
+              style={{ display: 'grid', placeItems: 'center', minHeight: 48, padding: '0 22px', fontSize: 15 }}
+            >
+              Bet on {team.name} at {pct(marketTeam.price)}
+            </Link>
+          )}
+        </div>
       </div>
 
       {report ? (

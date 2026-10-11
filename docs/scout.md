@@ -33,6 +33,7 @@ These were found by calling the API, and the code follows the live behaviour:
 - Search puts a long page summary (thousands of characters) in `description` and leaves `content` empty unless `full_content` is set.
 - The target's HTTP status is the top-level `status_code`. A deleted Vercel deploy is a successful Nimble call with `status_code: 404`, so it becomes `is_up = False`, not an error.
 - Nimble itself sometimes fails on a page. `httpbin.org/status/404` made it return HTTP 500 "please try again" after 7 seconds. That raises `NimbleError`.
+- A demo link whose domain doesn't exist is an HTTP 400 with `"message": "nx_domain_error"`. That is the site being down, not Nimble failing, so `extract` returns `is_up = False` for it.
 - Rendering doesn't always help. The Luma event page came back with no text every time it was rendered (Nimble switched to its `vx10-pro` stealth driver), and complete every time over plain HTTP.
 
 Search takes about 1 second; a rendered extract takes 2 to 7.
@@ -41,7 +42,7 @@ Search takes about 1 second; a rendered extract takes 2 to 7.
 
 Uses the `google-genai` SDK with `GEMINI_API_KEY` and `GEMINI_MODEL`.
 
-**Model.** The default is now `gemini-3.8-flash`. `gemini-2.5-flash`, the skeleton's default, answers 404 "no longer available to new users", so `config.py` and `.env.example` were changed; update `GEMINI_MODEL` in your own `backend/.env` if it still says 2.5. Gemini often answers 503 "high demand", sometimes on several models at once. Each call tries `gemini-3.8-flash`, then `gemini-3.6-flash`, then `gemini-3.5-flash`, retrying each once after a second or two. A 429 (quota used up) also moves on to the next model, since each model has its own quota. The SDK's default backoff is turned off because it took about a minute per model; now a call that fails on all three gives up in under 20 seconds.
+**Model.** The default is now `gemini-3.8-flash`. `gemini-2.5-flash`, the skeleton's default, answers 404 "no longer available to new users", so `config.py` and `.env.example` were changed; update `GEMINI_MODEL` in your own `backend/.env` if it still says 2.5. Gemini often answers 503 "high demand", sometimes on several models at once. Each call tries `gemini-3.8-flash`, then `gemini-3.6-flash`, then `gemini-3.5-flash`, retrying each once after a second or two. A 429 (quota used up) also moves on to the next model, since each model has its own quota, but isn't retried on the same model. The SDK's default backoff is turned off because it took about a minute per model; now a call that fails on all three gives up in under 20 seconds.
 
 **Quota.** A free-tier key allows 20 calls a day per model (429 `generate_content_free_tier_requests`, limit 20). Testing used up `gemini-3.8-flash`'s allowance by mid-afternoon. The demo needs about 150 calls by midnight, so the key needs billing turned on in Google AI Studio.
 
@@ -98,7 +99,7 @@ An empty repo returns zeros. Checked against `jasonli108/Oddsmaker`: 11 commits,
 
 | What happened | What the module does | What the pipeline does |
 | --- | --- | --- |
-| Demo deploy is gone or returns 4xx/5xx | `extract` returns `is_up = False` | Passes it to Gemini; the demo label becomes Down |
+| Demo deploy is gone, returns 4xx/5xx, or its domain doesn't exist | `extract` returns `is_up = False` | Passes it to Gemini; the demo label becomes Down |
 | Repo is private, mistyped or not on GitHub | Raises `RepoNotFound` | Calls Gemini with `repo=None`; never stale |
 | Demo check fails (`NimbleError`) or GitHub fails (rate limit, network) | Raises | Reuses the last report with `stale = true`. Before a first report, goes ahead and tells Gemini the check failed on our side |
 | Similar-project search fails | Raises `NimbleError` | Reuses the last report (which holds the search). Before a first report, saves nothing; the next run searches again |

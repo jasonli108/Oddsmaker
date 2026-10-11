@@ -16,6 +16,8 @@ has its own brief and its own markets.
 
 import asyncio
 import logging
+import math
+import time
 from datetime import datetime
 
 from psycopg.types.json import Jsonb
@@ -36,14 +38,28 @@ DRAFT_FIELDS = ("name", "hosted_by", "location", "starts_at", "submissions_close
 MARKET_IDS = list(ScoutScores.model_fields)
 # A team without a report yet is priced as if Scout had scored it this in every category.
 NEUTRAL_SCORE = 50
+# Failures Scout expects (quota, rate limits, a site or API that is down). They are logged as one
+# line; anything else gets a full traceback.
+EXPECTED_ERRORS = (nimble.NimbleError, github.GitHubError, gemini.GeminiError)
 # Teams refreshed at once, to go easy on Gemini (which answers 503 when busy) and Nimble.
 PARALLEL_TEAMS = 3
 SIMILAR_LIMIT = 6
 GALLERY_DOMAINS = ["devpost.com"]
+# Anyone can press Run Scout, so each team is scouted on demand at most once in this many minutes.
+RUN_SCOUT_COOLDOWN_MINUTES = 10
 
 # Event slug -> its brief. A brief that failed to build is not kept, so the next run tries again.
 _briefs: dict[str | None, str] = {}
 _brief_lock = asyncio.Lock()
+_last_run: dict[str, float] = {}  # team id -> time.monotonic() when Run Scout last started on it
+
+
+class ScoutError(Exception):
+    """Scout is switched off, or couldn't finish a run someone asked for. The router sends 503."""
+
+
+class ScoutBusy(ScoutError):
+    """Run Scout was pressed again too soon for this team. The router sends 429."""
 
 
 # ---- The host's event page ---------------------------------------------------
@@ -125,14 +141,14 @@ async def _build_brief(event_slug: str | None) -> str | None:
     if url:
         try:
             page = await nimble.extract(url, screenshot=False, render=False)
-        except Exception:
-            log.warning("Could not read the event page %s for the brief", url, exc_info=True)
+        except nimble.NimbleError as e:
+            log.warning("Could not read the event page %s for the brief: %s", url, _short(e))
     query = f"winning projects at {event.name}" if event else "winning AI hackathon projects"
     try:
         winners = await nimble.search(query, limit=5, domains=GALLERY_DOMAINS)
         brief = await gemini.condense_winners_brief(winners, page if page and page.text.strip() else None)
-    except Exception:
-        log.warning("Could not build the what-wins-here brief; reports go ahead without it", exc_info=True)
+    except Exception as e:
+        log.warning("Could not build the what-wins-here brief; reports go ahead without it: %s", _short(e))
         return None
     log.info("Built the what-wins-here brief from %d past projects", len(winners))
     return brief
@@ -168,6 +184,21 @@ def similar_projects(team: Team, results: list[nimble.SearchResult]) -> list[nim
     return kept[:SIMILAR_LIMIT]
 
 
+def _reason(error: Exception) -> str:
+    """Why a run failed, in words a host can act on. Gemini's errors carry a page of JSON."""
+    text = str(error)
+    if isinstance(error, gemini.GeminiError) and "429" in text:
+        return "Gemini's daily quota is used up. Turn on billing for the Gemini key, or wait for it to reset."
+    if isinstance(error, gemini.GeminiError) and "503" in text:
+        return "Gemini is overloaded right now. Try again in a minute."
+    return _short(error)
+
+
+def _short(error: Exception) -> str:
+    """An error's first line, cut short: Gemini's 429s carry a page of JSON."""
+    return str(error).splitlines()[0][:200]
+
+
 def _url_key(url: str) -> str:
     return url.strip().rstrip("/").lower().removeprefix("https://").removeprefix("http://").removeprefix("www.")
 
@@ -179,23 +210,27 @@ def _similar_from(report: ScoutReport) -> list[nimble.SearchResult]:
 # ---- Every 30 minutes per team -----------------------------------------------
 
 
-async def refresh_team(team: Team, brief: str = "") -> None:
+async def refresh_team(team: Team, brief: str = "") -> str | None:
     """Steps 4 to 6 for one team: gather the evidence, write a report and save it.
 
     If a fetch or Gemini fails and the team has a report, that report is saved again with
     stale = true. Before its first report, a failed repo or demo check is reported to Gemini as
-    our failure instead of blocking the report.
+    our failure instead of blocking the report. Returns None, or why the run failed.
     """
     previous = await _latest_report(team.id)
     try:
         report = await _write_report(team, previous, brief)
-    except Exception:
-        log.exception("Scout could not refresh %s", team.id)
+    except Exception as e:
+        if isinstance(e, EXPECTED_ERRORS):
+            log.warning("Scout could not refresh %s: %s", team.id, _short(e))
+        else:
+            log.exception("Scout could not refresh %s", team.id)
         if previous:
             await _save_report(previous, stale=True)
-        return
+        return _reason(e)
     await _save_report(report, stale=False)
     log.info("New report for %s: %s", team.id, report.scores.model_dump())
+    return None
 
 
 async def _write_report(team: Team, previous: ScoutReport | None, brief: str) -> ScoutReport:
@@ -219,7 +254,7 @@ async def _repo_stats(team: Team, *, tolerate: bool) -> github.RepoStats | None:
     except github.GitHubError:
         if not tolerate:
             raise
-        log.warning("GitHub stats failed for %s; its first report goes ahead without them", team.id, exc_info=True)
+        log.warning("GitHub stats failed for %s; its first report goes ahead without them", team.id)
         return None
 
 
@@ -232,7 +267,7 @@ async def _demo(team: Team, *, tolerate: bool) -> nimble.PageExtract | None:
     except nimble.NimbleError:
         if not tolerate:
             raise
-        log.warning("Demo check failed for %s; its first report goes ahead without it", team.id, exc_info=True)
+        log.warning("Demo check failed for %s; its first report goes ahead without it", team.id)
         return None
 
 
@@ -296,21 +331,70 @@ async def run_for_team(team: Team) -> None:
     await reprice_markets()
 
 
+async def scout_team(team_id: str) -> TeamReport | None:
+    """The Run Scout button on a report (POST /api/teams/:id/scout): one report for one team now.
+
+    One Gemini call (two if the brief isn't built yet), then a reprice. None for an unknown team.
+    Raises ScoutBusy within RUN_SCOUT_COOLDOWN_MINUTES of the last press for this team, which also
+    covers a run still in progress, and ScoutError if Scout is off or the run fails.
+    """
+    if not get_settings().scout_enabled:
+        raise ScoutError("Scout is switched off on this server (SCOUT_ENABLED=false).")
+    team = await market_service.get_team(team_id)
+    if team is None:
+        return None
+    wait = _last_run.get(team_id, -math.inf) + RUN_SCOUT_COOLDOWN_MINUTES * 60 - time.monotonic()
+    if wait > 0:
+        minutes = math.ceil(wait / 60)
+        raise ScoutBusy(
+            f"Scout ran on this team less than {RUN_SCOUT_COOLDOWN_MINUTES} minutes ago, or is still running. "
+            f"Try again in {minutes} minute{'s' if minutes != 1 else ''}."
+        )
+    _last_run[team_id] = time.monotonic()
+    problem = await refresh_team(team, await prepare_event(team.event_slug))
+    if problem:
+        raise ScoutError(f"Scout couldn't finish: {problem}")
+    await reprice_markets(team.event_slug)
+    return await get_team_report(team_id)
+
+
 async def refresh_all() -> None:
-    """Called by the scheduler: steps 4 to 8 for every team, a few at a time."""
+    """Called by the scheduler: steps 4 to 8 for every team that is due, a few at a time.
+
+    A team with a report from the last SCOUT_INTERVAL_MINUTES is skipped, so restarting the
+    server (or uvicorn --reload on every save) doesn't spend credits on teams Scout just covered.
+    The scheduler waits a full interval after each run, so its own runs never skip anyone.
+    """
+    minutes = get_settings().scout_interval_minutes
+    recent = await _recently_reported(minutes)
+    due = [t for t in await market_service.list_teams() if t.id not in recent]
+    if not due:
+        log.info("Every team has a report from the last %d minutes; nothing to refresh", minutes)
+        return
     limit = asyncio.Semaphore(PARALLEL_TEAMS)
-    teams = await market_service.list_teams()
-    briefs = {slug: await prepare_event(slug) for slug in {t.event_slug for t in teams}}
+    briefs = {slug: await prepare_event(slug) for slug in {t.event_slug for t in due}}
 
     async def refresh(team: Team) -> None:
         async with limit:
             await refresh_team(team, briefs[team.event_slug])
 
-    results = await asyncio.gather(*(refresh(t) for t in teams), return_exceptions=True)
-    for team, result in zip(teams, results):
+    results = await asyncio.gather(*(refresh(t) for t in due), return_exceptions=True)
+    for team, result in zip(due, results):
         if isinstance(result, Exception):
             log.error("Scout refresh crashed for %s", team.id, exc_info=result)
     await reprice_markets()
+
+
+async def _recently_reported(minutes: int) -> set[str]:
+    """Teams whose latest report, fresh or stale, is younger than `minutes`, by the database's clock."""
+    async with db.get_pool().connection() as conn:
+        rows = await (
+            await conn.execute(
+                "SELECT team_id FROM reports GROUP BY team_id HAVING max(created_at) > now() - make_interval(mins => %s)",
+                (minutes,),
+            )
+        ).fetchall()
+    return {r["team_id"] for r in rows}
 
 
 # ---- Reading reports ---------------------------------------------------------

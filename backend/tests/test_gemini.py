@@ -86,3 +86,7 @@ def test_a_bad_request_does_not_try_other_models(monkeypatch):
     with pytest.raises(gemini.GeminiError):
         asyncio.run(gemini._generate("system", ["hi"]))
     assert models.tried == ["main"]
+
+
+def test_a_used_up_quota_is_not_retried_on_the_same_model():
+    assert 429 not in gemini.RETRY.http_status_codes and 503 in gemini.RETRY.http_status_codes

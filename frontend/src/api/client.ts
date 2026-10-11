@@ -86,6 +86,8 @@ export const api = {
   listTeams: (eventSlug: string) => request<Team[]>(`/teams${inEvent(eventSlug)}`),
   createTeam: (team: TeamCreate) => post<Team>('/teams', team),
   getTeamReport: (id: string) => request<TeamReport>(`/teams/${id}/report`),
+  /** Scout writes a new report on this team now. Takes up to a minute; 429 within 10 minutes of the last run. */
+  runScout: (id: string) => post<TeamReport>(`/teams/${id}/scout`, {}),
 
   createUser: (displayName: string, eventSlug: string) =>
     post<User>('/users', { display_name: displayName, event_slug: eventSlug }),
