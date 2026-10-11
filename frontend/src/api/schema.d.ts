@@ -1170,9 +1170,7 @@ export interface operations {
     run_scout_api_teams__team_id__scout_post: {
         parameters: {
             query?: never;
-            header?: {
-                "x-host-password"?: string;
-            };
+            header?: never;
             path: {
                 team_id: string;
             };

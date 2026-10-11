@@ -83,8 +83,8 @@ export const api = {
   listTeams: () => request<Team[]>('/teams'),
   createTeam: (team: TeamCreate) => post<Team>('/teams', team),
   getTeamReport: (id: string) => request<TeamReport>(`/teams/${id}/report`),
-  /** Host only: Scout writes a new report on this team now. Takes up to a minute. */
-  runScout: (id: string, hostPassword: string) => post<TeamReport>(`/teams/${id}/scout`, {}, asHost(hostPassword)),
+  /** Scout writes a new report on this team now. Takes up to a minute; 429 within 10 minutes of the last run. */
+  runScout: (id: string) => post<TeamReport>(`/teams/${id}/scout`, {}),
 
   createUser: (displayName: string) => post<User>('/users', { display_name: displayName }),
   getUser: (id: string) => request<User>(`/users/${id}`),

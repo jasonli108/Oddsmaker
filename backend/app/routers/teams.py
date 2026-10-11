@@ -1,6 +1,5 @@
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, HTTPException
 
-from app.auth import require_host
 from app.market import service
 from app.schemas import Team, TeamCreate, TeamReport
 from app.scout import pipeline
@@ -32,11 +31,13 @@ async def get_team_report(team_id: str):
     return report
 
 
-@router.post("/{team_id}/scout", response_model=TeamReport, dependencies=[Depends(require_host)])
+@router.post("/{team_id}/scout", response_model=TeamReport)
 async def run_scout(team_id: str):
-    # Host only: each run spends Gemini quota and Nimble credits. Takes up to a minute.
+    # Open to anyone, so each team has a cooldown (pipeline.RUN_SCOUT_COOLDOWN_MINUTES). Takes up to a minute.
     try:
         report = await pipeline.scout_team(team_id)
+    except pipeline.ScoutBusy as e:
+        raise HTTPException(429, str(e))
     except pipeline.ScoutError as e:
         raise HTTPException(503, str(e))
     if report is None:

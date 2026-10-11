@@ -1,7 +1,7 @@
 """The 30-minute Scout timer. Started from app.main when SCOUT_ENABLED=true.
 
 SCOUT_INTERVAL_MINUTES=0 turns the timer off, to save Gemini quota: Scout then runs only when a
-team signs up and when the host presses Run Scout on a team's report.
+team signs up and when someone presses Run Scout on a team's report.
 """
 
 import asyncio

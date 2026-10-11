@@ -13,6 +13,8 @@ kept in its report, and the "what wins here" brief lives in memory until the ser
 
 import asyncio
 import logging
+import math
+import time
 from datetime import datetime
 
 from psycopg.types.json import Jsonb
@@ -39,13 +41,20 @@ EXPECTED_ERRORS = (nimble.NimbleError, github.GitHubError, gemini.GeminiError)
 PARALLEL_TEAMS = 3
 SIMILAR_LIMIT = 6
 GALLERY_DOMAINS = ["devpost.com"]
+# Anyone can press Run Scout, so each team is scouted on demand at most once in this many minutes.
+RUN_SCOUT_COOLDOWN_MINUTES = 10
 
 _brief: str | None = None
 _brief_lock = asyncio.Lock()
+_last_run: dict[str, float] = {}  # team id -> time.monotonic() when Run Scout last started on it
 
 
 class ScoutError(Exception):
-    """Scout is switched off, or couldn't finish a run the host asked for. The router sends 503."""
+    """Scout is switched off, or couldn't finish a run someone asked for. The router sends 503."""
+
+
+class ScoutBusy(ScoutError):
+    """Run Scout was pressed again too soon for this team. The router sends 429."""
 
 
 # ---- The host's event page ---------------------------------------------------
@@ -312,16 +321,25 @@ async def run_for_team(team: Team) -> None:
 
 
 async def scout_team(team_id: str) -> TeamReport | None:
-    """The host's Run Scout button (POST /api/teams/:id/scout): one report for one team now.
+    """The Run Scout button on a report (POST /api/teams/:id/scout): one report for one team now.
 
-    One Gemini call (two if the brief isn't built yet), then a reprice. None for an unknown team;
-    raises ScoutError if Scout is off or the run fails, with the reason for the host.
+    One Gemini call (two if the brief isn't built yet), then a reprice. None for an unknown team.
+    Raises ScoutBusy within RUN_SCOUT_COOLDOWN_MINUTES of the last press for this team, which also
+    covers a run still in progress, and ScoutError if Scout is off or the run fails.
     """
     if not get_settings().scout_enabled:
         raise ScoutError("Scout is switched off on this server (SCOUT_ENABLED=false).")
     team = await market_service.get_team(team_id)
     if team is None:
         return None
+    wait = _last_run.get(team_id, -math.inf) + RUN_SCOUT_COOLDOWN_MINUTES * 60 - time.monotonic()
+    if wait > 0:
+        minutes = math.ceil(wait / 60)
+        raise ScoutBusy(
+            f"Scout ran on this team less than {RUN_SCOUT_COOLDOWN_MINUTES} minutes ago, or is still running. "
+            f"Try again in {minutes} minute{'s' if minutes != 1 else ''}."
+        )
+    _last_run[team_id] = time.monotonic()
     problem = await refresh_team(team, await prepare_event())
     if problem:
         raise ScoutError(f"Scout couldn't finish: {problem}")

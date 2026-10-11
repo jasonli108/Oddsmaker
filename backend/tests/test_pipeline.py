@@ -266,6 +266,7 @@ def run_scout(monkeypatch):
         return "the new report"
 
     monkeypatch.setattr(pipeline, "get_settings", lambda: SimpleNamespace(scout_enabled=True))
+    monkeypatch.setattr(pipeline, "_last_run", {})
     monkeypatch.setattr(pipeline.market_service, "get_team", get_team)
     monkeypatch.setattr(pipeline, "prepare_event", prepare_event)
     monkeypatch.setattr(pipeline, "refresh_team", refresh_team)
@@ -288,6 +289,20 @@ def test_run_scout_tells_the_host_why_it_failed(run_scout):
     with pytest.raises(pipeline.ScoutError, match="quota is used up"):
         asyncio.run(pipeline.scout_team("orbit"))
     assert run_scout.repriced == 0
+
+
+def test_run_scout_waits_out_the_cooldown_for_each_team(run_scout):
+    asyncio.run(pipeline.scout_team("orbit"))
+    with pytest.raises(pipeline.ScoutBusy, match="Try again in 10 minutes"):
+        asyncio.run(pipeline.scout_team("orbit"))
+    assert run_scout.repriced == 1
+    # A failed run counts too, or repeated clicks on a failing team would spend credits each time.
+    pipeline._last_run["orbit"] -= pipeline.RUN_SCOUT_COOLDOWN_MINUTES * 60
+    run_scout.problem = "Gemini is overloaded right now."
+    with pytest.raises(pipeline.ScoutError):
+        asyncio.run(pipeline.scout_team("orbit"))
+    with pytest.raises(pipeline.ScoutBusy):
+        asyncio.run(pipeline.scout_team("orbit"))
 
 
 def test_run_scout_is_refused_while_scout_is_off():

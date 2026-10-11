@@ -4,7 +4,6 @@ import { api } from '../api/client';
 import type { MarketTeam, ScoutReport, TeamReport } from '../api/types';
 import Stat from '../components/Stat';
 import { HEADLINE_MARKET_ID, SCOUT_INTERVAL_MS } from '../config';
-import { hostPassword } from '../host';
 import { clock, countdown, pct, plural, points } from '../format';
 import { useAttendeePath } from '../hooks/useAttendeePath';
 import { useNow } from '../hooks/useNow';
@@ -123,20 +122,18 @@ function TeamLink({ team, selected }: { team: MarketTeam; selected: boolean }) {
 }
 
 /**
- * Host only: Scout writes a new report on this one team now. Each run spends Gemini quota, so it
- * shows only in a tab where the host has entered the password (on the host page or at setup).
+ * Scout writes a new report on this one team now. Anyone can press it; the server allows one run
+ * per team every 10 minutes and says how long to wait otherwise.
  */
 function RunScout({ teamId, onDone }: { teamId: string; onDone: () => void }) {
-  const password = hostPassword.get();
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  if (!password) return null;
 
-  async function run(pw: string) {
+  async function run() {
     setRunning(true);
     setError(null);
     try {
-      await api.runScout(teamId, pw);
+      await api.runScout(teamId);
       onDone();
     } catch (e) {
       setError((e as Error).message);
@@ -147,7 +144,7 @@ function RunScout({ teamId, onDone }: { teamId: string; onDone: () => void }) {
 
   return (
     <div className="stack" style={{ gap: 6, alignItems: 'flex-end', maxWidth: 360 }}>
-      <button className="btn" style={{ minHeight: 48 }} onClick={() => run(password)} disabled={running}>
+      <button className="btn" style={{ minHeight: 48 }} onClick={run} disabled={running}>
         {running ? 'Scout is working, up to a minute…' : 'Run Scout on this team'}
       </button>
       {error && (
