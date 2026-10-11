@@ -192,6 +192,58 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/events/extract": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Extract Event */
+        post: operations["extract_event_api_events_extract_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/event": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Event */
+        get: operations["get_event_api_event_get"];
+        /** Save Event */
+        put: operations["save_event_api_event_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/host/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Host Summary */
+        get: operations["host_summary_api_host_summary_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/health": {
         parameters: {
             query?: never;
@@ -275,6 +327,95 @@ export interface components {
              */
             created_at: string;
         };
+        /** Event */
+        Event: {
+            /** Name */
+            name: string;
+            /** Hosted By */
+            hosted_by?: string | null;
+            /** Location */
+            location?: string | null;
+            /** Starts At */
+            starts_at?: string | null;
+            /** Submissions Close At */
+            submissions_close_at?: string | null;
+            /** Source Url */
+            source_url?: string | null;
+            /**
+             * Categories
+             * @default []
+             */
+            categories: components["schemas"]["EventCategory"][];
+            /** Slug */
+            slug: string;
+        };
+        /** EventCategory */
+        EventCategory: {
+            /** Name */
+            name: string;
+            /** Prize */
+            prize?: string | null;
+            /** Market Id */
+            market_id?: ("overall" | "nimble" | "gemini" | "tiger_data") | null;
+        };
+        /** EventCreate */
+        EventCreate: {
+            /** Name */
+            name: string;
+            /** Hosted By */
+            hosted_by?: string | null;
+            /** Location */
+            location?: string | null;
+            /** Starts At */
+            starts_at?: string | null;
+            /** Submissions Close At */
+            submissions_close_at?: string | null;
+            /** Source Url */
+            source_url?: string | null;
+            /**
+             * Categories
+             * @default []
+             */
+            categories: components["schemas"]["EventCategory"][];
+        };
+        /**
+         * EventDraft
+         * @description What Scout read from the host's event page, for the host to check before launch.
+         */
+        EventDraft: {
+            /** Name */
+            name: string;
+            /** Hosted By */
+            hosted_by?: string | null;
+            /** Location */
+            location?: string | null;
+            /** Starts At */
+            starts_at?: string | null;
+            /** Submissions Close At */
+            submissions_close_at?: string | null;
+            /** Source Url */
+            source_url?: string | null;
+            /**
+             * Categories
+             * @default []
+             */
+            categories: components["schemas"]["EventCategory"][];
+            /**
+             * Missing
+             * @default []
+             */
+            missing: string[];
+            /**
+             * Is Sample
+             * @default false
+             */
+            is_sample: boolean;
+        };
+        /** EventExtractRequest */
+        EventExtractRequest: {
+            /** Url */
+            url: string;
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -293,6 +434,43 @@ export interface components {
              * @enum {string}
              */
             db: "connected" | "not_connected" | "error";
+        };
+        /** HostMarketRow */
+        HostMarketRow: {
+            /** Id */
+            id: string;
+            /** Category */
+            category: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "open" | "resolved";
+            /** Leader Team Id */
+            leader_team_id: string | null;
+            /** Leader Team Name */
+            leader_team_name: string | null;
+            /** Leader Price */
+            leader_price: number | null;
+            /** Staked */
+            staked: number;
+            /** Winner Team Id */
+            winner_team_id?: string | null;
+        };
+        /** HostSummary */
+        HostSummary: {
+            /** Attendees */
+            attendees: number;
+            /** Teams */
+            teams: number;
+            /** Bets */
+            bets: number;
+            /** Hackcoin Traded */
+            hackcoin_traded: number;
+            /** Markets */
+            markets: components["schemas"]["HostMarketRow"][];
+            /** Top Forecasters */
+            top_forecasters: components["schemas"]["LeaderboardEntry"][];
         };
         /** LeaderboardEntry */
         LeaderboardEntry: {
@@ -933,6 +1111,125 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LeaderboardEntry"][];
+                };
+            };
+        };
+    };
+    extract_event_api_events_extract_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EventExtractRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EventDraft"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_event_api_event_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Event"];
+                };
+            };
+        };
+    };
+    save_event_api_event_put: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-host-password"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EventCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Event"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    host_summary_api_host_summary_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-host-password"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HostSummary"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

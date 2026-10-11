@@ -93,3 +93,18 @@ SELECT add_continuous_aggregate_policy(
     schedule_interval => INTERVAL '1 minute',
     if_not_exists     => TRUE
 );
+
+-- The event this deployment is running. One row only: there is no multi-event support, and no
+-- other table carries an event id. Written by the host setup flow (PUT /api/event).
+CREATE TABLE IF NOT EXISTS events (
+    id                    SMALLINT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+    slug                  TEXT NOT NULL,
+    name                  TEXT NOT NULL,
+    hosted_by             TEXT,
+    location              TEXT,
+    starts_at             TIMESTAMPTZ,
+    submissions_close_at  TIMESTAMPTZ,
+    source_url            TEXT,
+    categories            JSONB NOT NULL DEFAULT '[]',   -- list of EventCategory
+    created_at            TIMESTAMPTZ NOT NULL DEFAULT now()
+);

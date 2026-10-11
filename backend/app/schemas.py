@@ -228,3 +228,66 @@ class TeamReport(BaseModel):
 class Health(BaseModel):
     status: Literal["ok"] = "ok"
     db: Literal["connected", "not_connected", "error"]
+
+
+# ---- Host flow: the event and the host page --------------------------------
+
+MarketId = Literal["overall", "nimble", "gemini", "tiger_data"]
+
+
+class EventCategory(BaseModel):
+    name: str
+    prize: str | None = None
+    market_id: MarketId | None = None  # set when the category maps to one of the four markets
+
+
+class EventExtractRequest(BaseModel):
+    url: str = Field(min_length=1, max_length=2000)
+
+
+class EventDraft(BaseModel):
+    """What Scout read from the host's event page, for the host to check before launch."""
+
+    name: str  # empty when it could not be found; "name" is then listed in `missing`
+    hosted_by: str | None = None
+    location: str | None = None
+    starts_at: datetime | None = None
+    submissions_close_at: datetime | None = None
+    source_url: str | None = None
+    categories: list[EventCategory] = []
+    missing: list[str] = []  # names of the fields above that were not on the page
+    is_sample: bool = False  # true when Scout is off and this is canned data, not read from the URL
+
+
+class EventCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    hosted_by: str | None = None
+    location: str | None = None
+    starts_at: datetime | None = None
+    submissions_close_at: datetime | None = None
+    source_url: str | None = None
+    categories: list[EventCategory] = []
+
+
+class Event(EventCreate):
+    slug: str
+
+
+class HostMarketRow(BaseModel):
+    id: str
+    category: str
+    status: MarketStatus
+    leader_team_id: str | None  # null while no team has signed up
+    leader_team_name: str | None
+    leader_price: float | None
+    staked: float
+    winner_team_id: str | None = None
+
+
+class HostSummary(BaseModel):
+    attendees: int
+    teams: int
+    bets: int
+    hackcoin_traded: float
+    markets: list[HostMarketRow]
+    top_forecasters: list[LeaderboardEntry]
