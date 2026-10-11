@@ -29,6 +29,9 @@ CREATE TABLE IF NOT EXISTS users (
     created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+ALTER TABLE teams ADD COLUMN IF NOT EXISTS creator_user_id UUID REFERENCES users (id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS teams_creator_idx ON teams (creator_user_id);
+
 -- The weights. A team's price is (seed + staked) / sum(seed + staked) over its market.
 CREATE TABLE IF NOT EXISTS positions (
     market_id  TEXT NOT NULL REFERENCES markets (id),

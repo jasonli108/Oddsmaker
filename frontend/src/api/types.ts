@@ -31,3 +31,5 @@ export type EventDraft = S['EventDraft'];
 export type EventCategory = S['EventCategory'];
 export type HostSummary = S['HostSummary'];
 export type HostMarketRow = S['HostMarketRow'];
+export type UserBet = S['UserBet'];
+export type UserSummary = S['UserSummary'];

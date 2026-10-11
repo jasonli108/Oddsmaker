@@ -27,6 +27,7 @@ class Team(BaseModel):
     repo_url: str | None = None
     demo_url: str | None = None
     color: str
+    creator_user_id: str | None = None
 
 
 class TeamCreate(BaseModel):
@@ -34,6 +35,7 @@ class TeamCreate(BaseModel):
     idea: str = Field(min_length=1, max_length=200)
     repo_url: str | None = None
     demo_url: str | None = None
+    creator_user_id: str | None = None
 
 
 # ---- Users -----------------------------------------------------------------
@@ -54,6 +56,41 @@ class LeaderboardEntry(BaseModel):
     user_id: str
     display_name: str
     balance: float
+
+
+BetStatus = Literal["open", "won", "lost"]
+
+
+class UserBet(BaseModel):
+    id: str
+    market_id: str
+    market_title: str
+    market_category: str
+    market_status: MarketStatus
+    winner_team_id: str | None = None
+    team_id: str
+    team_name: str
+    team_color: str
+    stake: float
+    price_at_bet: float
+    multiple: float
+    potential_payout: float
+    payout: float | None = None
+    status: BetStatus
+    created_at: datetime
+
+
+class UserSummary(BaseModel):
+    user: User
+    rank: int | None = None
+    total_staked: float
+    bet_count: int
+    open_bets_count: int
+    won_bets_count: int
+    total_payout: float
+    net_profit: float
+    bets: list[UserBet]
+    teams: list[Team]
 
 
 # ---- Markets ---------------------------------------------------------------

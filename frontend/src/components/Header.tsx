@@ -11,6 +11,7 @@ const TABS = [
   { to: '/reports', label: 'Scout reports' },
   { to: '/leaderboard', label: 'Leaderboard' },
   { to: '/signup', label: 'Sign up a team' },
+  { to: '/summary', label: 'My summary' },
 ];
 
 export default function Header() {
@@ -28,16 +29,17 @@ export default function Header() {
         <div className="row" style={{ gap: 18 }}>
           <Countdown />
           {user ? (
-            <div
+            <NavLink
+              to="/summary"
               className="card small dim"
-              title={`Playing as ${user.display_name}`}
-              style={{ padding: '8px 14px', borderRadius: 'var(--radius-control)' }}
+              title={`Playing as ${user.display_name} – View summary & historical trades`}
+              style={{ padding: '8px 14px', borderRadius: 'var(--radius-control)', display: 'inline-block', textDecoration: 'none' }}
             >
               Your balance{' '}
               <span className="mono" style={{ color: 'var(--text)', fontWeight: 500, marginLeft: 6 }}>
                 {coin(user.balance)} Hackcoin
               </span>
-            </div>
+            </NavLink>
           ) : (
             ready && <JoinForm />
           )}

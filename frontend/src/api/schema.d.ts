@@ -175,6 +175,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/users/{user_id}/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get User Summary */
+        get: operations["get_user_summary_api_users__user_id__summary_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/users/{user_id}/bets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get User Bets */
+        get: operations["get_user_bets_api_users__user_id__bets_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/leaderboard": {
         parameters: {
             query?: never;
@@ -694,6 +728,8 @@ export interface components {
             demo_url?: string | null;
             /** Color */
             color: string;
+            /** Creator User Id */
+            creator_user_id?: string | null;
         };
         /** TeamCreate */
         TeamCreate: {
@@ -705,6 +741,8 @@ export interface components {
             repo_url?: string | null;
             /** Demo Url */
             demo_url?: string | null;
+            /** Creator User Id */
+            creator_user_id?: string | null;
         };
         /** TeamReport */
         TeamReport: {
@@ -737,10 +775,76 @@ export interface components {
             /** Balance */
             balance: number;
         };
+        /** UserBet */
+        UserBet: {
+            /** Id */
+            id: string;
+            /** Market Id */
+            market_id: string;
+            /** Market Title */
+            market_title: string;
+            /** Market Category */
+            market_category: string;
+            /**
+             * Market Status
+             * @enum {string}
+             */
+            market_status: "open" | "resolved";
+            /** Winner Team Id */
+            winner_team_id?: string | null;
+            /** Team Id */
+            team_id: string;
+            /** Team Name */
+            team_name: string;
+            /** Team Color */
+            team_color: string;
+            /** Stake */
+            stake: number;
+            /** Price At Bet */
+            price_at_bet: number;
+            /** Multiple */
+            multiple: number;
+            /** Potential Payout */
+            potential_payout: number;
+            /** Payout */
+            payout?: number | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "open" | "won" | "lost";
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
         /** UserCreate */
         UserCreate: {
             /** Display Name */
             display_name: string;
+        };
+        /** UserSummary */
+        UserSummary: {
+            user: components["schemas"]["User"];
+            /** Rank */
+            rank?: number | null;
+            /** Total Staked */
+            total_staked: number;
+            /** Bet Count */
+            bet_count: number;
+            /** Open Bets Count */
+            open_bets_count: number;
+            /** Won Bets Count */
+            won_bets_count: number;
+            /** Total Payout */
+            total_payout: number;
+            /** Net Profit */
+            net_profit: number;
+            /** Bets */
+            bets: components["schemas"]["UserBet"][];
+            /** Teams */
+            teams: components["schemas"]["Team"][];
         };
         /** ValidationError */
         ValidationError: {
@@ -1082,6 +1186,68 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["User"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_user_summary_api_users__user_id__summary_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserSummary"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_user_bets_api_users__user_id__bets_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserBet"][];
                 };
             };
             /** @description Validation Error */
